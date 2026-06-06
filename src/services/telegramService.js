@@ -167,6 +167,7 @@ function helpText() {
     '🎬 Videos: pick a ratio, then send a prompt or script.',
     '💎 Subscription: see plans and contact the owner to activate.',
     '💰 Add Balance: request a Birr or USDT top-up.',
+    '🔎 Inline: type this bot username in any chat, then short keywords only.',
     '',
     'Use /menu anytime to open the buttons again.',
     'Use /cancel to reset your current flow.'

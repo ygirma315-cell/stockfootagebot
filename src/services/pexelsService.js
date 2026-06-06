@@ -108,6 +108,27 @@ function choosePhoto(photos, options = {}) {
   };
 }
 
+function inlinePhotoResults(photos) {
+  if (!Array.isArray(photos)) {
+    return [];
+  }
+
+  return photos
+    .filter((photo) => photo?.src?.large || photo?.src?.medium)
+    .slice(0, 8)
+    .map((photo) => ({
+      id: photo.id,
+      photographer: photo.photographer,
+      pageUrl: photo.url,
+      photoUrl:
+        photo.src?.large ||
+        photo.src?.medium,
+      thumbUrl: photo.src?.medium || photo.src?.small || photo.src?.tiny,
+      width: photo.width,
+      height: photo.height
+    }));
+}
+
 function chooseVideoFile(video, options = {}) {
   const orientation = normalizeOrientation(options.orientation);
   const files = Array.isArray(video.video_files) ? video.video_files : [];
@@ -252,6 +273,19 @@ async function searchImages(query, options = {}) {
   return null;
 }
 
+async function searchInlineImages(query, options = {}) {
+  const cleanQuery = normalizeWhitespace(query);
+  const orientation = normalizeOrientation(options.orientation);
+  const url = buildUrl(PEXELS_PHOTO_SEARCH, {
+    query: cleanQuery,
+    per_page: '8',
+    orientation,
+    page: '1'
+  });
+  const result = await pexelsJson(url);
+  return inlinePhotoResults(result.photos);
+}
+
 async function searchVideos(query, options = {}) {
   const cleanQuery = normalizeWhitespace(query);
   const orientation = normalizeOrientation(options.orientation);
@@ -323,6 +357,7 @@ async function downloadVideo(video) {
 module.exports = {
   downloadImage,
   downloadVideo,
+  searchInlineImages,
   searchImages,
   searchVideos
 };

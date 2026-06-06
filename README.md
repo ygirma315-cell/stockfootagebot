@@ -47,6 +47,8 @@ The bot uses Telegram long polling, so it does not need a web server for local u
 
 `/help` explains the flow.
 
+`/inline` explains how short keyword inline search works.
+
 `/cancel` clears the current waiting state.
 
 `/stats` shows local usage totals. Only the configured owner can use it.
@@ -73,6 +75,14 @@ Plans:
 - Premium: $10/month, unlimited fair-use requests plus the premium script/caption/voice-over flow.
 
 Payments are manual for now. The bot lets users choose Birr or USDT and sends them to the owner inbox. After confirming payment, use `/set_plan` or `/add_balance`.
+
+## Inline Search
+
+Telegram inline mode lets users type your bot username in any chat, followed by short keywords such as `sunset car` or `office meeting`. The bot returns selectable stock image previews. When a user taps one, Telegram posts that image into the chat with a caption/source.
+
+Inline mode only accepts short keyword searches. Long prompts, scripts, and messy text return a "Footage not found" result.
+
+Enable inline mode once in BotFather with `/setinline` for this bot.
 
 ## Script Analysis
 

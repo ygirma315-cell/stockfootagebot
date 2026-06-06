@@ -7,11 +7,17 @@ const { analyzeScript } = require('./services/scriptAnalyzer');
 const {
   downloadImage,
   downloadVideo,
+  searchInlineImages,
   searchImages,
   searchVideos
 } = require('./services/pexelsService');
 const quotaService = require('./services/quotaService');
 const telegram = require('./services/telegramService');
+const {
+  buildSearchQuery,
+  normalizeWhitespace,
+  wordCount
+} = require('./utils/textTools');
 
 const userSessions = new Map();
 
@@ -46,6 +52,59 @@ function isOwner(ctx) {
 
 async function sendStart(ctx) {
   await ctx.reply(telegram.welcomeText(), telegram.mainMenuKeyboard());
+}
+
+async function configureBotMenu(bot) {
+  const userCommands = [
+    { command: 'menu', description: 'Open the main buttons' },
+    { command: 'images', description: 'Create stock photos' },
+    { command: 'videos', description: 'Create stock videos' },
+    { command: 'subscription', description: 'View subscription plans' },
+    { command: 'balance', description: 'Check balance and top up' },
+    { command: 'topup', description: 'Request a balance top-up' },
+    { command: 'inline', description: 'How inline image search works' },
+    { command: 'help', description: 'How to use the bot' },
+    { command: 'cancel', description: 'Reset the current flow' }
+  ];
+  const ownerCommands = [
+    ...userCommands,
+    { command: 'stats', description: 'Owner: view usage stats' },
+    { command: 'reset_user', description: 'Owner: reset a user quota' },
+    { command: 'set_plan', description: 'Owner: activate a user plan' },
+    { command: 'add_balance', description: 'Owner: credit user balance' }
+  ];
+
+  await bot.telegram.setMyCommands(userCommands);
+  await bot.telegram.setChatMenuButton({
+    menuButton: {
+      type: 'commands'
+    }
+  });
+
+  for (const ownerId of config.ownerTelegramIds) {
+    if (!/^\d+$/.test(ownerId)) {
+      continue;
+    }
+
+    try {
+      await bot.telegram.setMyCommands(ownerCommands, {
+        scope: {
+          type: 'chat',
+          chat_id: Number(ownerId)
+        }
+      });
+    } catch (error) {
+      logger.warn('Owner command menu setup failed.', {
+        ownerId,
+        error: {
+          name: error.name,
+          message: error.message
+        }
+      });
+    }
+  }
+
+  logger.info('Telegram command menu configured.');
 }
 
 function startHealthServer(bot) {
@@ -85,6 +144,7 @@ function startHealthServer(bot) {
 async function startBotTransport(bot) {
   if (config.webhookEnabled) {
     await bot.telegram.setWebhook(config.webhookUrl, {
+      allowed_updates: ['message', 'callback_query', 'inline_query'],
       secret_token: config.webhookSecretToken || undefined
     });
     logger.info(`Telegram webhook set to ${config.webhookUrl}.`);
@@ -598,6 +658,197 @@ async function processPremiumVideoRequest(ctx, text, session, voiceover) {
   await ctx.reply(telegram.doneText(quota));
 }
 
+async function showSubscription(ctx) {
+  const profile = await quotaService.profile(ctx.from);
+  await ctx.reply(
+    telegram.subscriptionText(profile),
+    telegram.htmlOptions(telegram.subscriptionKeyboard())
+  );
+}
+
+async function showBuySubscription(ctx) {
+  await ctx.reply(
+    telegram.buySubscriptionText(),
+    telegram.htmlOptions(telegram.subscriptionPlanKeyboard())
+  );
+}
+
+async function showBalance(ctx) {
+  const profile = await quotaService.profile(ctx.from);
+  await ctx.reply(
+    telegram.balanceText(profile),
+    telegram.htmlOptions(telegram.balanceKeyboard())
+  );
+}
+
+async function showTopup(ctx) {
+  await ctx.reply(
+    telegram.topupText(),
+    telegram.htmlOptions(telegram.topupPaymentKeyboard())
+  );
+}
+
+async function startImageFlow(ctx) {
+  updateSession(ctx, {
+    state: 'choosing_aspect_ratio',
+    mediaType: 'image',
+    lastVideo: null
+  });
+  await ctx.reply(telegram.chooseAspectText('image'), telegram.aspectRatioKeyboard());
+}
+
+async function startStockVideoFlow(ctx) {
+  updateSession(ctx, {
+    state: 'choosing_aspect_ratio',
+    mediaType: 'video',
+    videoWorkflow: 'stock',
+    premiumScript: '',
+    voiceover: null,
+    lastVideo: null
+  });
+  await ctx.reply(telegram.chooseAspectText('video'), telegram.aspectRatioKeyboard());
+}
+
+async function startPremiumVideoFlow(ctx) {
+  if (!(await userHasPremiumAccess(ctx))) {
+    await showSubscription(ctx);
+    return;
+  }
+
+  updateSession(ctx, {
+    state: 'choosing_aspect_ratio',
+    mediaType: 'video',
+    videoWorkflow: 'premium',
+    premiumScript: '',
+    voiceover: null,
+    lastVideo: null
+  });
+  await ctx.reply(telegram.chooseAspectText('video'), telegram.aspectRatioKeyboard());
+}
+
+async function startVideoFlow(ctx) {
+  if (await userHasPremiumAccess(ctx)) {
+    updateSession(ctx, {
+      state: 'choosing_video_workflow',
+      mediaType: 'video',
+      videoWorkflow: 'stock',
+      premiumScript: '',
+      voiceover: null,
+      lastVideo: null
+    });
+    await ctx.reply(
+      telegram.chooseVideoWorkflowText(),
+      telegram.htmlOptions(telegram.videoWorkflowKeyboard())
+    );
+    return;
+  }
+
+  await startStockVideoFlow(ctx);
+}
+
+function isInlineKeywordQuery(text) {
+  const cleanText = normalizeWhitespace(text);
+
+  if (!cleanText || cleanText.length > 60 || wordCount(cleanText) > 6) {
+    return false;
+  }
+
+  if (!/[a-z0-9]/i.test(cleanText) || /[\n.!?;:]/.test(cleanText)) {
+    return false;
+  }
+
+  return true;
+}
+
+function footageNotFoundInlineResult(query) {
+  return {
+    type: 'article',
+    id: 'footage-not-found',
+    title: 'Footage not found',
+    description: 'Use short keywords like: sunset car, office meeting, city night',
+    input_message_content: {
+      message_text: `Footage not found for "${query || 'that search'}". Try short keywords only.`
+    }
+  };
+}
+
+function inlineHelpResult() {
+  return {
+    type: 'article',
+    id: 'inline-help',
+    title: 'Search stock images inline',
+    description: 'Type short keywords after the bot username.',
+    input_message_content: {
+      message_text: 'Use short keywords only, like: sunset car, office meeting, city night.'
+    }
+  };
+}
+
+function toInlinePhotoResult(photo, query, index) {
+  return {
+    type: 'photo',
+    id: `pexels-${photo.id}-${index}`,
+    photo_url: photo.photoUrl,
+    thumbnail_url: photo.thumbUrl || photo.photoUrl,
+    photo_width: photo.width,
+    photo_height: photo.height,
+    title: query,
+    description: photo.photographer ? `Photo by ${photo.photographer}` : 'Stock photo',
+    caption: [
+      `🖼 ${query}`,
+      photo.photographer ? `📸 Photo by ${photo.photographer}` : '',
+      photo.pageUrl ? `Source: ${photo.pageUrl}` : ''
+    ].filter(Boolean).join('\n').slice(0, 1000)
+  };
+}
+
+async function handleInlineImageSearch(ctx) {
+  const query = normalizeWhitespace(ctx.inlineQuery?.query || '');
+
+  if (!query) {
+    await ctx.answerInlineQuery([inlineHelpResult()], {
+      cache_time: 30,
+      is_personal: true
+    });
+    return;
+  }
+
+  if (!config.pexelsApiKey || !isInlineKeywordQuery(query)) {
+    await ctx.answerInlineQuery([footageNotFoundInlineResult(query)], {
+      cache_time: 30,
+      is_personal: true
+    });
+    return;
+  }
+
+  try {
+    const searchQuery = buildSearchQuery(query, 'image');
+    const photos = await searchInlineImages(searchQuery, {
+      orientation: 'landscape'
+    });
+    const results = photos.map((photo, index) => toInlinePhotoResult(photo, query, index));
+
+    await ctx.answerInlineQuery(
+      results.length > 0 ? results : [footageNotFoundInlineResult(query)],
+      {
+        cache_time: 60,
+        is_personal: false
+      }
+    );
+  } catch (error) {
+    logger.warn('Inline image search failed.', {
+      error: {
+        name: error.name,
+        message: error.message
+      }
+    });
+    await ctx.answerInlineQuery([footageNotFoundInlineResult(query)], {
+      cache_time: 30,
+      is_personal: true
+    });
+  }
+}
+
 async function createBot() {
   validateConfig();
   await ensureRuntimeDirs();
@@ -621,6 +872,39 @@ async function createBot() {
     await sendStart(ctx);
   });
 
+  bot.command('images', async (ctx) => {
+    await startImageFlow(ctx);
+  });
+
+  bot.command('videos', async (ctx) => {
+    await startVideoFlow(ctx);
+  });
+
+  bot.command('subscription', async (ctx) => {
+    await showSubscription(ctx);
+  });
+
+  bot.command('balance', async (ctx) => {
+    await showBalance(ctx);
+  });
+
+  bot.command('topup', async (ctx) => {
+    await showTopup(ctx);
+  });
+
+  bot.command('inline', async (ctx) => {
+    await ctx.reply(
+      [
+        'Inline search lets you use this bot inside other chats.',
+        '',
+        'Type the bot username, then short keywords only.',
+        'Example: @yourbot sunset car',
+        '',
+        'Long scripts are not accepted in inline mode.'
+      ].join('\n')
+    );
+  });
+
   bot.command('cancel', async (ctx) => {
     resetSession(ctx);
     await ctx.reply('✅ Canceled. Choose a fresh option when you are ready.', telegram.mainMenuKeyboard());
@@ -631,21 +915,16 @@ async function createBot() {
   bot.command('set_plan', handleSetPlan);
   bot.command('add_balance', handleAddBalance);
 
+  bot.on('inline_query', handleInlineImageSearch);
+
   bot.action('subscription', async (ctx) => {
     await ctx.answerCbQuery();
-    const profile = await quotaService.profile(ctx.from);
-    await ctx.reply(
-      telegram.subscriptionText(profile),
-      telegram.htmlOptions(telegram.subscriptionKeyboard())
-    );
+    await showSubscription(ctx);
   });
 
   bot.action('buy_subscription', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.reply(
-      telegram.buySubscriptionText(),
-      telegram.htmlOptions(telegram.subscriptionPlanKeyboard())
-    );
+    await showBuySubscription(ctx);
   });
 
   bot.action(/^choose_plan_(golden|platinum|premium)$/, async (ctx) => {
@@ -668,19 +947,12 @@ async function createBot() {
 
   bot.action('balance', async (ctx) => {
     await ctx.answerCbQuery();
-    const profile = await quotaService.profile(ctx.from);
-    await ctx.reply(
-      telegram.balanceText(profile),
-      telegram.htmlOptions(telegram.balanceKeyboard())
-    );
+    await showBalance(ctx);
   });
 
   bot.action('topup', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.reply(
-      telegram.topupText(),
-      telegram.htmlOptions(telegram.topupPaymentKeyboard())
-    );
+    await showTopup(ctx);
   });
 
   bot.action(/^topup_pay_(birr|usdt)$/, async (ctx) => {
@@ -694,75 +966,22 @@ async function createBot() {
 
   bot.action('generate_images', async (ctx) => {
     await ctx.answerCbQuery();
-    updateSession(ctx, {
-      state: 'choosing_aspect_ratio',
-      mediaType: 'image',
-      lastVideo: null
-    });
-    await ctx.reply(telegram.chooseAspectText('image'), telegram.aspectRatioKeyboard());
+    await startImageFlow(ctx);
   });
 
   bot.action('generate_videos', async (ctx) => {
     await ctx.answerCbQuery();
-
-    if (await userHasPremiumAccess(ctx)) {
-      updateSession(ctx, {
-        state: 'choosing_video_workflow',
-        mediaType: 'video',
-        videoWorkflow: 'stock',
-        premiumScript: '',
-        voiceover: null,
-        lastVideo: null
-      });
-      await ctx.reply(
-        telegram.chooseVideoWorkflowText(),
-        telegram.htmlOptions(telegram.videoWorkflowKeyboard())
-      );
-      return;
-    }
-
-    updateSession(ctx, {
-      state: 'choosing_aspect_ratio',
-      mediaType: 'video',
-      videoWorkflow: 'stock',
-      lastVideo: null
-    });
-    await ctx.reply(telegram.chooseAspectText('video'), telegram.aspectRatioKeyboard());
+    await startVideoFlow(ctx);
   });
 
   bot.action('video_workflow_stock', async (ctx) => {
     await ctx.answerCbQuery();
-    updateSession(ctx, {
-      state: 'choosing_aspect_ratio',
-      mediaType: 'video',
-      videoWorkflow: 'stock',
-      premiumScript: '',
-      voiceover: null,
-      lastVideo: null
-    });
-    await ctx.reply(telegram.chooseAspectText('video'), telegram.aspectRatioKeyboard());
+    await startStockVideoFlow(ctx);
   });
 
   bot.action('video_workflow_premium', async (ctx) => {
     await ctx.answerCbQuery();
-
-    if (!(await userHasPremiumAccess(ctx))) {
-      await ctx.reply(
-        telegram.subscriptionText(await quotaService.profile(ctx.from)),
-        telegram.htmlOptions(telegram.subscriptionKeyboard())
-      );
-      return;
-    }
-
-    updateSession(ctx, {
-      state: 'choosing_aspect_ratio',
-      mediaType: 'video',
-      videoWorkflow: 'premium',
-      premiumScript: '',
-      voiceover: null,
-      lastVideo: null
-    });
-    await ctx.reply(telegram.chooseAspectText('video'), telegram.aspectRatioKeyboard());
+    await startPremiumVideoFlow(ctx);
   });
 
   bot.action('aspect_9_16', async (ctx) => {
@@ -1042,6 +1261,17 @@ async function createBot() {
       logger.error('Failed to send error reply.', replyError);
     }
   });
+
+  try {
+    await configureBotMenu(bot);
+  } catch (error) {
+    logger.warn('Telegram command menu setup failed.', {
+      error: {
+        name: error.name,
+        message: error.message
+      }
+    });
+  }
 
   return bot;
 }
