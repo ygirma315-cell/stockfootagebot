@@ -11,13 +11,13 @@ function pexelsHeaders() {
   };
 }
 
-async function pexelsJson(url) {
+async function pexelsJson(url, options = {}) {
   if (!config.pexelsApiKey) {
     throw new Error('PEXELS_API_KEY is missing.');
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20_000);
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 20_000);
 
   try {
     const response = await fetch(url, {
@@ -362,7 +362,9 @@ async function searchInlineVideos(query, options = {}) {
     orientation,
     page: '1'
   });
-  const result = await pexelsJson(url);
+  const result = await pexelsJson(url, {
+    timeoutMs: options.timeoutMs || 3500
+  });
   return inlineVideoResults(result.videos);
 }
 

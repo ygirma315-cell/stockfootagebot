@@ -20,6 +20,8 @@ const {
 } = require('./utils/textTools');
 
 const userSessions = new Map();
+const inlineVideoCache = new Map();
+const INLINE_CACHE_TTL_MS = 90_000;
 
 function validateConfig() {
   const missing = [];
@@ -805,6 +807,24 @@ function toInlineVideoResult(video, query, index) {
   };
 }
 
+function getCachedInlineVideos(cacheKey) {
+  const cached = inlineVideoCache.get(cacheKey);
+
+  if (!cached || cached.expiresAt <= Date.now()) {
+    inlineVideoCache.delete(cacheKey);
+    return null;
+  }
+
+  return cached.results;
+}
+
+function setCachedInlineVideos(cacheKey, results) {
+  inlineVideoCache.set(cacheKey, {
+    results,
+    expiresAt: Date.now() + INLINE_CACHE_TTL_MS
+  });
+}
+
 async function handleInlineVideoSearch(ctx) {
   const query = normalizeWhitespace(ctx.inlineQuery?.query || '');
   const effectiveQuery = query || 'cinematic nature';
@@ -819,9 +839,17 @@ async function handleInlineVideoSearch(ctx) {
 
   try {
     const searchQuery = buildSearchQuery(effectiveQuery, 'video');
-    const videos = await searchInlineVideos(searchQuery, {
-      orientation: 'landscape'
+    const cacheKey = `landscape:${searchQuery.toLowerCase()}`;
+    const cachedVideos = getCachedInlineVideos(cacheKey);
+    const videos = cachedVideos || await searchInlineVideos(searchQuery, {
+      orientation: 'landscape',
+      timeoutMs: 3500
     });
+
+    if (!cachedVideos) {
+      setCachedInlineVideos(cacheKey, videos);
+    }
+
     const results = videos.map((video, index) =>
       toInlineVideoResult(video, query || 'Popular footage', index)
     );
