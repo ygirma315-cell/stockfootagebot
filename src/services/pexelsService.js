@@ -132,6 +132,7 @@ function inlinePhotoResults(photos) {
 function chooseVideoFile(video, options = {}) {
   const orientation = normalizeOrientation(options.orientation);
   const files = Array.isArray(video.video_files) ? video.video_files : [];
+  const maxBytes = options.maxBytes || config.videoMaxBytes;
   const candidates = files
     .filter((file) => String(file.file_type || '').includes('mp4'))
     .filter((file) => file.link)
@@ -141,7 +142,7 @@ function chooseVideoFile(video, options = {}) {
       const height = Number(file.height || 0);
 
       if (fileSize) {
-        return fileSize <= config.videoMaxBytes;
+        return fileSize <= maxBytes;
       }
 
       return width * height <= 1280 * 720;
@@ -151,18 +152,21 @@ function chooseVideoFile(video, options = {}) {
       const width = Number(file.width || 0);
       const height = Number(file.height || 0);
       const shapeMatches = matchesOrientation(width, height, orientation);
-      const withinSize = !fileSize || fileSize <= config.videoMaxBytes;
-      const resolutionScore = Math.min(width * height, 1920 * 1080) / (1920 * 1080);
-      const sizeScore = fileSize ? Math.max(0, 1 - fileSize / config.videoMaxBytes) : 0.4;
+      const ratio = width && height ? width / height : 0;
+      const ratioScore = Math.max(0, 1 - Math.abs(ratio - 16 / 9));
+      const withinSize = !fileSize || fileSize <= maxBytes;
+      const resolutionScore = Math.min(width * height, 1280 * 720) / (1280 * 720);
+      const sizeScore = fileSize ? Math.max(0, 1 - fileSize / maxBytes) : 0.4;
       const knownSizeScore = fileSize ? 8 : 0;
 
       return {
         item: file,
         score:
-          (withinSize ? 20 : -100) +
+          (withinSize ? 30 : -100) +
           (shapeMatches ? 20 : 0) +
-          resolutionScore * 25 +
-          sizeScore * 15 +
+          ratioScore * 20 +
+          resolutionScore * 15 +
+          sizeScore * 25 +
           knownSizeScore +
           Math.random() * 6
       };

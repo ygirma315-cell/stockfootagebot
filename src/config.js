@@ -69,6 +69,6 @@ module.exports = {
   usageFilePath: path.join(rootDir, 'data', 'usage.json'),
   downloadsDir: path.join(rootDir, 'downloads'),
   imageMaxBytes: 12 * 1024 * 1024,
-  videoMaxBytes: 50 * 1024 * 1024,
-  downloadTimeoutMs: 45_000
+  videoMaxBytes: positiveInteger(process.env.VIDEO_MAX_MB, 18) * 1024 * 1024,
+  downloadTimeoutMs: positiveInteger(process.env.DOWNLOAD_TIMEOUT_MS, 20_000)
 };

@@ -412,21 +412,17 @@ async function sendMediaForScene(ctx, scene, mediaType, options = {}) {
     }
 
     try {
-      downloadedFile =
-        mediaType === 'image' ? await downloadImage(result) : await downloadVideo(result);
-
       const caption = telegram.sceneCaption(scene, mediaType, result, options.ratioLabel);
 
-      if (mediaType === 'image') {
-        await ctx.replyWithPhoto({ source: downloadedFile }, { caption });
+      if (mediaType === 'video') {
+        await ctx.reply('Found footage. Sending it to Telegram now...');
+        await ctx.replyWithVideo(result.downloadUrl, {
+          caption,
+          supports_streaming: true
+        });
       } else {
-        await ctx.replyWithVideo(
-          { source: downloadedFile },
-          {
-            caption,
-            supports_streaming: true
-          }
-        );
+        downloadedFile = await downloadImage(result);
+        await ctx.replyWithPhoto({ source: downloadedFile }, { caption });
       }
 
       return result;
@@ -434,6 +430,30 @@ async function sendMediaForScene(ctx, scene, mediaType, options = {}) {
       await cleanupFile(downloadedFile).catch(() => {});
       downloadedFile = null;
       excludeIds.push(result.id);
+
+      if (mediaType === 'video' && result?.downloadUrl) {
+        try {
+          await ctx.reply('Telegram had trouble fetching that clip. Trying one safer upload...');
+          downloadedFile = await downloadVideo(result);
+          await ctx.replyWithVideo(
+            { source: downloadedFile },
+            {
+              caption: telegram.sceneCaption(scene, mediaType, result, options.ratioLabel),
+              supports_streaming: true
+            }
+          );
+          return result;
+        } catch (fallbackError) {
+          await cleanupFile(downloadedFile).catch(() => {});
+          downloadedFile = null;
+          logger.warn('Video fallback upload failed.', {
+            error: {
+              name: fallbackError.name,
+              message: fallbackError.message
+            }
+          });
+        }
+      }
 
       logger.warn('Media result skipped.', {
         mediaType,
@@ -581,7 +601,7 @@ async function processMediaRequest(ctx, mediaType, text, session) {
     });
 
     if (sentVideos === 0) {
-      await ctx.reply(telegram.doneText(quota));
+      await ctx.reply('I could not send a clean video for that prompt. Try a simpler keyword like "city night" or choose 16:9.');
       return;
     }
 
@@ -675,7 +695,7 @@ async function processPremiumVideoRequest(ctx, text, session, voiceover) {
   });
 
   if (sentVideos === 0) {
-    await ctx.reply(telegram.doneText(quota));
+    await ctx.reply('I could not send a clean premium video match for that script. Try a shorter, more visual script.');
     return;
   }
 
