@@ -12,6 +12,13 @@ function optionalString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function optionalStringList(...values) {
+  return values
+    .flatMap((value) => optionalString(value).split(/[,\s]+/))
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 const aiApiKey = optionalString(process.env.AI_API_KEY);
 const isNvidiaStyleKey = aiApiKey.startsWith('nvapi-');
 const renderExternalUrl = optionalString(process.env.RENDER_EXTERNAL_URL);
@@ -45,6 +52,10 @@ module.exports = {
   ownerUsernameNormalized: optionalString(process.env.OWNER_USERNAME)
     .replace(/^@/, '')
     .toLowerCase(),
+  ownerTelegramIds: optionalStringList(
+    process.env.OWNER_TELEGRAM_ID,
+    process.env.OWNER_TELEGRAM_IDS
+  ),
   port: positiveInteger(process.env.PORT, 3000),
   keepAliveEnabled: Boolean(keepAliveUrl) && keepAliveEnabledValue !== 'false',
   keepAliveIntervalMinutes: positiveInteger(process.env.KEEP_ALIVE_INTERVAL_MINUTES, 10),

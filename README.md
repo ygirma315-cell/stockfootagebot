@@ -20,6 +20,7 @@ PEXELS_API_KEY=
 AI_API_KEY=
 VOICEOVER_API_KEY=
 OWNER_USERNAME=
+OWNER_TELEGRAM_ID=
 MAX_MEDIA_PER_REQUEST=8
 QUOTA_TIMEZONE=UTC
 ```
@@ -56,7 +57,7 @@ The bot uses Telegram long polling, so it does not need a web server for local u
 
 `/add_balance <telegram_user_id> <amount> <birr|usdt>` credits a user's balance after manual top-up. Only the configured owner can use it.
 
-The owner is checked by Telegram username from `OWNER_USERNAME`, with or without the leading `@`.
+The owner is checked by Telegram ID from `OWNER_TELEGRAM_ID` and by Telegram username from `OWNER_USERNAME`, with or without the leading `@`. The ID is the safest option because usernames can change.
 
 ## Quota
 

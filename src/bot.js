@@ -32,11 +32,16 @@ function normalizeUsername(username) {
 }
 
 function isOwner(ctx) {
-  if (!config.ownerUsernameNormalized) {
-    return false;
+  const userId = String(ctx.from?.id || '');
+
+  if (userId && config.ownerTelegramIds.includes(userId)) {
+    return true;
   }
 
-  return normalizeUsername(ctx.from?.username) === config.ownerUsernameNormalized;
+  return Boolean(
+    config.ownerUsernameNormalized &&
+      normalizeUsername(ctx.from?.username) === config.ownerUsernameNormalized
+  );
 }
 
 async function sendStart(ctx) {
