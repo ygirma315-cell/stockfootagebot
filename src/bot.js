@@ -1,3 +1,4 @@
+const http = require('http');
 const { Telegraf } = require('telegraf');
 const config = require('./config');
 const logger = require('./utils/logger');
@@ -40,6 +41,28 @@ function isOwner(ctx) {
 
 async function sendStart(ctx) {
   await ctx.reply(telegram.welcomeText(), telegram.mainMenuKeyboard());
+}
+
+function startHealthServer() {
+  const server = http.createServer((request, response) => {
+    const isHealthRoute = request.url === '/' || request.url === '/health';
+
+    response.writeHead(isHealthRoute ? 200 : 404, {
+      'Content-Type': 'application/json'
+    });
+    response.end(
+      JSON.stringify({
+        ok: isHealthRoute,
+        service: 'stock-footage-telegram-bot'
+      })
+    );
+  });
+
+  server.listen(config.port, () => {
+    logger.info(`Health server listening on port ${config.port}.`);
+  });
+
+  return server;
 }
 
 async function userHasPremiumAccess(ctx) {
@@ -961,11 +984,19 @@ async function createBot() {
 if (require.main === module) {
   createBot()
     .then((bot) => {
+      const healthServer = startHealthServer();
       bot.launch();
       logger.info('Telegram bot started.');
 
-      process.once('SIGINT', () => bot.stop('SIGINT'));
-      process.once('SIGTERM', () => bot.stop('SIGTERM'));
+      const stop = (signal) => {
+        bot.stop(signal);
+        healthServer.close(() => {
+          logger.info('Health server stopped.');
+        });
+      };
+
+      process.once('SIGINT', () => stop('SIGINT'));
+      process.once('SIGTERM', () => stop('SIGTERM'));
     })
     .catch((error) => {
       logger.error('Telegram bot failed to start.', error);
@@ -974,5 +1005,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  createBot
+  createBot,
+  startHealthServer
 };

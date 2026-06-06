@@ -35,6 +35,7 @@ module.exports = {
   ownerUsernameNormalized: optionalString(process.env.OWNER_USERNAME)
     .replace(/^@/, '')
     .toLowerCase(),
+  port: positiveInteger(process.env.PORT, 3000),
   maxMediaPerRequest: positiveInteger(process.env.MAX_MEDIA_PER_REQUEST, 20),
   quotaTimezone: optionalString(process.env.QUOTA_TIMEZONE) || 'UTC',
   usageFilePath: path.join(rootDir, 'data', 'usage.json'),

@@ -103,9 +103,13 @@ For simple deployment, run the same `npm start` command on a VPS, Railway, Rende
 
 Set the environment variables in the host dashboard instead of uploading `.env`.
 
-This project currently uses long polling. On Render, use a Background Worker with:
+This project currently uses long polling. On Render, a Background Worker is the best fit, but a Web Service also works because the app starts a small health server on Render's `PORT`.
+
+For Render Web Service or Background Worker:
 
 - Build command: `npm install`
 - Start command: `npm start`
+
+Leave Root Directory blank.
 
 For high traffic, you can later switch to Telegram webhooks and replace the local JSON quota file with a database.
