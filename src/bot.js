@@ -7,7 +7,7 @@ const { analyzeScript } = require('./services/scriptAnalyzer');
 const {
   downloadImage,
   downloadVideo,
-  searchInlineImages,
+  searchInlineVideos,
   searchImages,
   searchVideos
 } = require('./services/pexelsService');
@@ -62,7 +62,7 @@ async function configureBotMenu(bot) {
     { command: 'subscription', description: 'View subscription plans' },
     { command: 'balance', description: 'Check balance and top up' },
     { command: 'topup', description: 'Request a balance top-up' },
-    { command: 'inline', description: 'How inline image search works' },
+    { command: 'inline', description: 'How inline video search works' },
     { command: 'help', description: 'How to use the bot' },
     { command: 'cancel', description: 'Reset the current flow' }
   ];
@@ -765,9 +765,9 @@ function footageNotFoundInlineResult(query) {
     type: 'article',
     id: 'footage-not-found',
     title: 'Footage not found',
-    description: 'Use short keywords like: sunset car, office meeting, city night',
+    description: 'Use short video keywords like: sunset car, office meeting, city night',
     input_message_content: {
-      message_text: `Footage not found for "${query || 'that search'}". Try short keywords only.`
+      message_text: `Footage not found for "${query || 'that search'}". Try short video keywords only.`
     }
   };
 }
@@ -776,44 +776,40 @@ function inlineHelpResult() {
   return {
     type: 'article',
     id: 'inline-help',
-    title: 'Search stock images inline',
+    title: 'Search 16:9 stock videos inline',
     description: 'Type short keywords after the bot username.',
     input_message_content: {
-      message_text: 'Use short keywords only, like: sunset car, office meeting, city night.'
+      message_text: 'Use short video keywords only, like: sunset car, office meeting, city night.'
     }
   };
 }
 
-function toInlinePhotoResult(photo, query, index) {
+function toInlineVideoResult(video, query, index) {
   return {
-    type: 'photo',
-    id: `pexels-${photo.id}-${index}`,
-    photo_url: photo.photoUrl,
-    thumbnail_url: photo.thumbUrl || photo.photoUrl,
-    photo_width: photo.width,
-    photo_height: photo.height,
-    title: query,
-    description: photo.photographer ? `Photo by ${photo.photographer}` : 'Stock photo',
+    type: 'video',
+    id: `pexels-video-${video.id}-${index}`,
+    video_url: video.videoUrl,
+    mime_type: 'video/mp4',
+    thumbnail_url: video.thumbnailUrl,
+    video_width: video.width,
+    video_height: video.height,
+    video_duration: video.duration,
+    title: `${query} - 16:9 video`,
+    description: video.userName ? `Video by ${video.userName}` : 'Stock video',
     caption: [
-      `🖼 ${query}`,
-      photo.photographer ? `📸 Photo by ${photo.photographer}` : '',
-      photo.pageUrl ? `Source: ${photo.pageUrl}` : ''
+      `Video: ${query}`,
+      'Format: 16:9',
+      video.userName ? `Credit: ${video.userName}` : '',
+      video.pageUrl ? `Source: ${video.pageUrl}` : ''
     ].filter(Boolean).join('\n').slice(0, 1000)
   };
 }
 
-async function handleInlineImageSearch(ctx) {
+async function handleInlineVideoSearch(ctx) {
   const query = normalizeWhitespace(ctx.inlineQuery?.query || '');
+  const effectiveQuery = query || 'cinematic nature';
 
-  if (!query) {
-    await ctx.answerInlineQuery([inlineHelpResult()], {
-      cache_time: 30,
-      is_personal: true
-    });
-    return;
-  }
-
-  if (!config.pexelsApiKey || !isInlineKeywordQuery(query)) {
+  if (!config.pexelsApiKey || (query && !isInlineKeywordQuery(query))) {
     await ctx.answerInlineQuery([footageNotFoundInlineResult(query)], {
       cache_time: 30,
       is_personal: true
@@ -822,21 +818,23 @@ async function handleInlineImageSearch(ctx) {
   }
 
   try {
-    const searchQuery = buildSearchQuery(query, 'image');
-    const photos = await searchInlineImages(searchQuery, {
+    const searchQuery = buildSearchQuery(effectiveQuery, 'video');
+    const videos = await searchInlineVideos(searchQuery, {
       orientation: 'landscape'
     });
-    const results = photos.map((photo, index) => toInlinePhotoResult(photo, query, index));
+    const results = videos.map((video, index) =>
+      toInlineVideoResult(video, query || 'Popular footage', index)
+    );
 
     await ctx.answerInlineQuery(
-      results.length > 0 ? results : [footageNotFoundInlineResult(query)],
+      results.length > 0 ? results : [footageNotFoundInlineResult(query || effectiveQuery)],
       {
-        cache_time: 60,
+        cache_time: query ? 20 : 60,
         is_personal: false
       }
     );
   } catch (error) {
-    logger.warn('Inline image search failed.', {
+    logger.warn('Inline video search failed.', {
       error: {
         name: error.name,
         message: error.message
@@ -895,12 +893,12 @@ async function createBot() {
   bot.command('inline', async (ctx) => {
     await ctx.reply(
       [
-        'Inline search lets you use this bot inside other chats.',
+        'Inline search lets you post 16:9 stock videos inside other chats.',
         '',
-        'Type the bot username, then short keywords only.',
+        'Type the bot username, then short video keywords only.',
         'Example: @yourbot sunset car',
         '',
-        'Long scripts are not accepted in inline mode.'
+        'Blank search shows starter footage. Long scripts are not accepted in inline mode.'
       ].join('\n')
     );
   });
@@ -915,7 +913,7 @@ async function createBot() {
   bot.command('set_plan', handleSetPlan);
   bot.command('add_balance', handleAddBalance);
 
-  bot.on('inline_query', handleInlineImageSearch);
+  bot.on('inline_query', handleInlineVideoSearch);
 
   bot.action('subscription', async (ctx) => {
     await ctx.answerCbQuery();

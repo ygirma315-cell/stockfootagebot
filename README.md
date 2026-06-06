@@ -78,9 +78,9 @@ Payments are manual for now. The bot lets users choose Birr or USDT and sends th
 
 ## Inline Search
 
-Telegram inline mode lets users type your bot username in any chat, followed by short keywords such as `sunset car` or `office meeting`. The bot returns selectable stock image previews. When a user taps one, Telegram posts that image into the chat with a caption/source.
+Telegram inline mode lets users type your bot username in any chat, followed by short keywords such as `sunset car` or `office meeting`. The bot returns selectable 16:9 stock video previews. When a user taps one, Telegram posts that video into the chat with a caption/source.
 
-Inline mode only accepts short keyword searches. Long prompts, scripts, and messy text return a "Footage not found" result.
+Inline mode only accepts short keyword searches. Blank inline searches show starter footage. Long prompts, scripts, and messy text return a "Footage not found" result.
 
 Enable inline mode once in BotFather with `/setinline` for this bot.
 

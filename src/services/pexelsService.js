@@ -204,6 +204,73 @@ function chooseVideo(videos, options = {}) {
   return null;
 }
 
+function chooseInlineVideoFile(video) {
+  const files = Array.isArray(video?.video_files) ? video.video_files : [];
+  const candidates = files
+    .filter((file) => String(file.file_type || '').includes('mp4'))
+    .filter((file) => file.link)
+    .filter((file) => {
+      const width = Number(file.width || 0);
+      const height = Number(file.height || 0);
+      const fileSize = Number(file.file_size || 0);
+
+      if (!width || !height || height > width) {
+        return false;
+      }
+
+      if (fileSize && fileSize > 20 * 1024 * 1024) {
+        return false;
+      }
+
+      return width <= 1280 && height <= 720;
+    })
+    .map((file) => {
+      const width = Number(file.width || 0);
+      const height = Number(file.height || 0);
+      const fileSize = Number(file.file_size || 0);
+      const ratio = width && height ? width / height : 0;
+      const ratioScore = Math.max(0, 1 - Math.abs(ratio - 16 / 9));
+      const sizeScore = fileSize ? Math.max(0, 1 - fileSize / (20 * 1024 * 1024)) : 0.5;
+      const resolutionScore = Math.min(width * height, 1280 * 720) / (1280 * 720);
+
+      return {
+        item: file,
+        score: ratioScore * 40 + resolutionScore * 25 + sizeScore * 15
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.item || null;
+}
+
+function inlineVideoResults(videos) {
+  if (!Array.isArray(videos)) {
+    return [];
+  }
+
+  return videos
+    .map((video) => {
+      const videoFile = chooseInlineVideoFile(video);
+
+      if (!videoFile || !video.image) {
+        return null;
+      }
+
+      return {
+        id: video.id,
+        pageUrl: video.url,
+        thumbnailUrl: video.image,
+        videoUrl: videoFile.link,
+        width: videoFile.width,
+        height: videoFile.height,
+        duration: video.duration,
+        userName: video.user?.name || ''
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
 async function searchPexelsWithFallback(baseUrl, params, fallbackParams) {
   const randomUrl = buildUrl(baseUrl, params);
   const randomResult = await pexelsJson(randomUrl);
@@ -286,6 +353,19 @@ async function searchInlineImages(query, options = {}) {
   return inlinePhotoResults(result.photos);
 }
 
+async function searchInlineVideos(query, options = {}) {
+  const cleanQuery = normalizeWhitespace(query);
+  const orientation = normalizeOrientation(options.orientation);
+  const url = buildUrl(PEXELS_VIDEO_SEARCH, {
+    query: cleanQuery,
+    per_page: '10',
+    orientation,
+    page: '1'
+  });
+  const result = await pexelsJson(url);
+  return inlineVideoResults(result.videos);
+}
+
 async function searchVideos(query, options = {}) {
   const cleanQuery = normalizeWhitespace(query);
   const orientation = normalizeOrientation(options.orientation);
@@ -358,6 +438,7 @@ module.exports = {
   downloadImage,
   downloadVideo,
   searchInlineImages,
+  searchInlineVideos,
   searchImages,
   searchVideos
 };
