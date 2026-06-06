@@ -432,11 +432,11 @@ async function downloadImage(photo) {
   });
 }
 
-async function downloadVideo(video) {
+async function downloadVideo(video, options = {}) {
   return downloadFile(video.downloadUrl, {
     prefix: `video-${video.id}`,
     extension: video.extension || '.mp4',
-    maxBytes: config.videoMaxBytes
+    maxBytes: options.maxBytes || config.videoMaxBytes
   });
 }
 

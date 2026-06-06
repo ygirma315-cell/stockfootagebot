@@ -5,6 +5,7 @@ const logger = require('./utils/logger');
 const { cleanupFile, cleanupOldDownloads, ensureRuntimeDirs } = require('./utils/fileCleanup');
 const { generateScriptWithAi } = require('./services/aiService');
 const { analyzeScript } = require('./services/scriptAnalyzer');
+const { renderPremiumVideo } = require('./services/renderService');
 const {
   downloadImage,
   downloadVideo,
@@ -27,6 +28,8 @@ const INLINE_CACHE_TTL_MS = 90_000;
 const INLINE_DEFAULT_QUERY = 'cinematic nature';
 const INLINE_MIN_SEARCH_CHARS = 2;
 const INLINE_SEARCH_TIMEOUT_MS = 2000;
+const premiumRenderQueue = [];
+let activePremiumRenders = 0;
 
 function validateConfig() {
   const missing = [];
@@ -531,6 +534,92 @@ function initialVideoBatchSize(analysis) {
   return Math.min(analysis.scenes.length, config.maxMediaPerRequest);
 }
 
+function enqueuePremiumRenderJob(job) {
+  const position = activePremiumRenders + premiumRenderQueue.length + 1;
+  premiumRenderQueue.push(job);
+  setImmediate(processPremiumRenderQueue);
+  return position;
+}
+
+function processPremiumRenderQueue() {
+  while (activePremiumRenders < config.renderMaxConcurrent && premiumRenderQueue.length > 0) {
+    const job = premiumRenderQueue.shift();
+    activePremiumRenders += 1;
+
+    runPremiumRenderJob(job)
+      .catch((error) => {
+        logger.error('Premium render queue job crashed.', error);
+      })
+      .finally(() => {
+        activePremiumRenders -= 1;
+        processPremiumRenderQueue();
+      });
+  }
+}
+
+async function runPremiumRenderJob(job) {
+  let result;
+
+  try {
+    const progress = async (message) => {
+      await job.telegramApi.sendMessage(job.chatId, message).catch((error) => {
+        logger.warn('Premium render progress message failed.', {
+          error: {
+            name: error.name,
+            message: error.message
+          }
+        });
+      });
+    };
+
+    result = await renderPremiumVideo({
+      analysis: job.analysis,
+      onProgress: progress,
+      ratioLabel: job.session.ratioLabel,
+      script: job.text,
+      voiceover: job.voiceover
+    });
+
+    await job.telegramApi.sendMessage(job.chatId, 'Uploading the final video...');
+    await job.telegramApi.sendVideo(
+      job.chatId,
+      { source: result.outputPath },
+      {
+        caption: telegram.premiumRenderCompleteText(result, job.quota),
+        supports_streaming: true
+      }
+    );
+  } catch (error) {
+    logger.error('Premium render failed.', error, {
+      chatId: job.chatId,
+      userId: job.userId
+    });
+
+    await job.telegramApi.sendMessage(
+      job.chatId,
+      telegram.premiumRenderFailedText(error),
+      telegram.htmlOptions()
+    ).catch((replyError) => {
+      logger.error('Failed to send premium render failure message.', replyError);
+    });
+  } finally {
+    const cleanupPaths = result?.cleanupPaths || [];
+    await Promise.all(
+      cleanupPaths.map((filePath) =>
+        cleanupFile(filePath).catch((error) => {
+          logger.warn('Premium render cleanup failed.', {
+            error: {
+              name: error.name,
+              message: error.message
+            },
+            filePath
+          });
+        })
+      )
+    );
+  }
+}
+
 async function sendVideoBatch(ctx, videoSession, count) {
   let sent = 0;
   let attempts = 0;
@@ -668,43 +757,28 @@ async function processPremiumVideoRequest(ctx, text, session, voiceover) {
     telegram.premiumRenderSummaryText(analysis, voiceover),
     telegram.htmlOptions()
   );
-  await ctx.reply(telegram.searchingText(session.ratioLabel));
+  const position = enqueuePremiumRenderJob({
+    analysis,
+    chatId: ctx.chat.id,
+    quota,
+    session: {
+      orientation: session.orientation,
+      ratioLabel: session.ratioLabel
+    },
+    telegramApi: ctx.telegram,
+    text,
+    userId: ctx.from.id,
+    voiceover
+  });
 
-  const videoSession = {
-    scenes: analysis.scenes,
-    nextSceneIndex: 0,
-    orientation: session.orientation,
-    ratioLabel: session.ratioLabel,
-    prompt: text,
-    usedVideoIds: [],
-    sentCount: 0,
-    maxResults: config.maxMediaPerRequest
-  };
-
-  const sentVideos = await sendVideoBatch(
-    ctx,
-    videoSession,
-    initialVideoBatchSize(analysis)
-  );
+  await ctx.reply(telegram.premiumRenderQueuedText(position));
 
   updateSession(ctx, {
     state: 'idle',
     premiumScript: '',
     voiceover: null,
-    lastVideo: videoSession
+    lastVideo: null
   });
-
-  if (sentVideos === 0) {
-    await ctx.reply('I could not send a clean premium video match for that script. Try a shorter, more visual script.');
-    return;
-  }
-
-  if (hasMoreVideo(videoSession)) {
-    await ctx.reply(telegram.moreVideoText(), telegram.generateMoreKeyboard());
-    return;
-  }
-
-  await ctx.reply(telegram.doneText(quota));
 }
 
 async function showSubscription(ctx) {

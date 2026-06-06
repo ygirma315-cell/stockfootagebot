@@ -27,7 +27,7 @@ QUOTA_TIMEZONE=UTC
 
 `AI_API_KEY` is optional. When it is present, the bot tries an OpenAI-compatible chat completions API to turn medium and long scripts into JSON scene queries. You can also set `AI_API_BASE_URL` and `AI_MODEL` if your provider needs a specific endpoint or model.
 
-`VOICEOVER_API_KEY` is kept separate for premium voice-over work. Keep real keys in `.env` locally and in Render environment variables, never in source code.
+`VOICEOVER_API_KEY` is optional when `AI_API_KEY` is the same NVIDIA key. If blank, the bot uses `AI_API_KEY` for premium voice-over. Keep real keys in `.env` locally and in Render environment variables, never in source code.
 
 `.env` is ignored by git. Do not commit real tokens.
 
@@ -72,13 +72,13 @@ Plans:
 - Free: 50 photos/day and 50 videos/day.
 - Golden: $3/month, 300 photos/day and 200 videos/day.
 - Platinum: $4/month, 400 photos/day and 300 videos/day.
-- Premium: $10/month, unlimited fair-use requests plus the premium script/caption/voice-over flow.
+- Premium: $10/month, unlimited fair-use requests plus the premium script-to-video render flow.
 
 Payments are manual for now. The bot lets users choose Birr or USDT and sends them to the owner inbox. After confirming payment, use `/set_plan` or `/add_balance`.
 
 ## Inline Search
 
-Telegram inline mode lets users type your bot username in any chat, followed by short keywords such as `sunset car` or `office meeting`. The bot returns selectable 16:9 stock video previews. When a user taps one, Telegram posts that video into the chat with a caption/source.
+Telegram inline mode lets users type your bot username in any chat, followed by short keywords such as `sunset car` or `office meeting`. The bot returns selectable 16:9 stock video previews. When a user taps one, Telegram posts that video into the chat with a clean caption.
 
 Inline mode only accepts short keyword searches. Blank inline searches show starter footage. Long prompts, scripts, and messy text return a "Footage not found" result.
 
@@ -107,6 +107,20 @@ Images use the configured stock photo provider.
 Videos use the configured stock video provider and prefer MP4 files that are good quality without being too large.
 
 Downloads are saved temporarily in `downloads/`, sent to Telegram, and then removed. Failed or oversized downloads are cleaned up safely.
+
+## Premium Render
+
+Premium render is only available to Premium users and the configured owner. Non-premium users see a locked render button and the subscription flow.
+
+The backend does the editing inside Node using ffmpeg:
+
+1. Analyze the script into visual scenes.
+2. Generate voice-over audio with NVIDIA Riva/Magpie when voice-over is selected.
+3. Download matching stock clips into `downloads/`.
+4. Trim/crop clips to the chosen ratio, burn captions, add voice-over, and export one MP4.
+5. Upload the MP4 to Telegram, then delete the clips, audio, and final render file.
+
+The files are temporary, not permanent storage. While a render is running, it can use tens of MB of disk space. To protect small Render instances, the bot defaults to one premium render at a time with `RENDER_MAX_CONCURRENT=1`.
 
 ## Deploy Later
 

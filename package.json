@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/bot.js",
     "dev": "node --watch src/bot.js",
-    "check": "node --check src/bot.js && node --check src/config.js && node --check src/services/aiService.js && node --check src/services/pexelsService.js && node --check src/services/plans.js && node --check src/services/quotaService.js && node --check src/services/scriptAnalyzer.js && node --check src/services/telegramService.js && node --check src/utils/fileCleanup.js && node --check src/utils/logger.js && node --check src/utils/textTools.js"
+    "check": "node --check src/bot.js && node --check src/config.js && node --check src/services/aiService.js && node --check src/services/pexelsService.js && node --check src/services/plans.js && node --check src/services/quotaService.js && node --check src/services/renderService.js && node --check src/services/scriptAnalyzer.js && node --check src/services/telegramService.js && node --check src/services/voiceoverService.js && node --check src/utils/fileCleanup.js && node --check src/utils/logger.js && node --check src/utils/textTools.js"
   },
   "keywords": [
     "telegram",
@@ -16,6 +16,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
     "dotenv": "^16.4.7",
     "telegraf": "^4.16.3"
   },

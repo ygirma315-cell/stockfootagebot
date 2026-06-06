@@ -114,5 +114,6 @@ module.exports = {
   cleanupFile,
   cleanupOldDownloads,
   downloadFile,
-  ensureRuntimeDirs
+  ensureRuntimeDirs,
+  tempFilePath
 };

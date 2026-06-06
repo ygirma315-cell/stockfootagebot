@@ -45,9 +45,17 @@ module.exports = {
   aiModel:
     optionalString(process.env.AI_MODEL) ||
     (isNvidiaStyleKey ? 'meta/llama-3.1-70b-instruct' : 'gpt-4o-mini'),
-  voiceoverApiKey: optionalString(process.env.VOICEOVER_API_KEY),
+  voiceoverApiKey: optionalString(process.env.VOICEOVER_API_KEY) || aiApiKey,
   voiceoverApiBaseUrl: optionalString(process.env.VOICEOVER_API_BASE_URL),
-  voiceoverModel: optionalString(process.env.VOICEOVER_MODEL),
+  voiceoverGrpcServer:
+    optionalString(process.env.VOICEOVER_GRPC_SERVER) || 'grpc.nvcf.nvidia.com:443',
+  voiceoverFunctionId:
+    optionalString(process.env.VOICEOVER_FUNCTION_ID) ||
+    '877104f7-e885-42b9-8de8-f6e4c6303969',
+  voiceoverLanguageCode: optionalString(process.env.VOICEOVER_LANGUAGE_CODE) || 'en-US',
+  voiceoverModel:
+    optionalString(process.env.VOICEOVER_MODEL) || 'Magpie-Multilingual.EN-US.Aria',
+  voiceoverSampleRateHz: positiveInteger(process.env.VOICEOVER_SAMPLE_RATE_HZ, 22050),
   ownerUsername: optionalString(process.env.OWNER_USERNAME),
   ownerUsernameNormalized: optionalString(process.env.OWNER_USERNAME)
     .replace(/^@/, '')
@@ -70,5 +78,10 @@ module.exports = {
   downloadsDir: path.join(rootDir, 'downloads'),
   imageMaxBytes: 12 * 1024 * 1024,
   videoMaxBytes: positiveInteger(process.env.VIDEO_MAX_MB, 18) * 1024 * 1024,
-  downloadTimeoutMs: positiveInteger(process.env.DOWNLOAD_TIMEOUT_MS, 20_000)
+  downloadTimeoutMs: positiveInteger(process.env.DOWNLOAD_TIMEOUT_MS, 20_000),
+  renderMaxScenes: positiveInteger(process.env.RENDER_MAX_SCENES, 6),
+  renderMaxConcurrent: positiveInteger(process.env.RENDER_MAX_CONCURRENT, 1),
+  renderClipMaxBytes: positiveInteger(process.env.RENDER_CLIP_MAX_MB, 35) * 1024 * 1024,
+  renderTimeoutMs: positiveInteger(process.env.RENDER_TIMEOUT_MS, 180_000),
+  telegramVideoMaxBytes: positiveInteger(process.env.TELEGRAM_VIDEO_MAX_MB, 45) * 1024 * 1024
 };

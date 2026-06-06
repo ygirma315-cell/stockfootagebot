@@ -355,8 +355,49 @@ function premiumRenderSummaryText(analysis, voiceover) {
     '<b>Caption draft</b>',
     captions,
     '',
-    'I am sending the matching clips now.'
+    'I am rendering one edited video now.'
   ].join('\n').slice(0, 3900);
+}
+
+function premiumRenderQueuedText(position) {
+  if (position <= 1) {
+    return [
+      'Premium render started.',
+      'I will generate voice-over, match clips, burn captions, and upload one final video.'
+    ].join('\n');
+  }
+
+  return [
+    `Premium render queued at position ${position}.`,
+    'The bot renders one job at a time to keep the server stable.'
+  ].join('\n');
+}
+
+function premiumRenderCompleteText(result, quota) {
+  const parts = [
+    'Done. Your edited video is ready.',
+    `${result.sceneCount} scene(s) stitched${result.audioUsed ? ' with voice-over' : ''}.`
+  ];
+
+  if (!result.captionsBurned) {
+    parts.push('Caption burn-in failed on the server, so this one was rendered without burned captions.');
+  }
+
+  if (quota?.unlimited) {
+    parts.push('Owner/Premium access: unlimited fair use.');
+  }
+
+  return parts.join('\n').slice(0, 1000);
+}
+
+function premiumRenderFailedText(error) {
+  const message = String(error?.message || '').slice(0, 180);
+
+  return [
+    'I could not finish that render.',
+    message ? `Reason: ${escapeHtml(message)}` : '',
+    'Try a shorter, more visual script, then run Premium render again.'
+  ].filter(Boolean).join('\n');
 }
 
 function quotaReachedText(quota) {
@@ -457,6 +498,9 @@ module.exports = {
   planLimitLine,
   planUpdatedText,
   premiumLockedText,
+  premiumRenderCompleteText,
+  premiumRenderFailedText,
+  premiumRenderQueuedText,
   premiumPromptRequestText,
   premiumRenderSummaryText,
   promptRequestText,
