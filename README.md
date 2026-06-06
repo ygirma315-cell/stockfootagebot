@@ -122,6 +122,8 @@ The backend does the editing inside Node using ffmpeg:
 
 The files are temporary, not permanent storage. While a render is running, it can use tens of MB of disk space. To protect small Render instances, the bot defaults to one premium render at a time with `RENDER_MAX_CONCURRENT=1`.
 
+Premium render can plan up to 50 scenes by default with `PREMIUM_ANALYSIS_MAX_SCENES=50` and `RENDER_MAX_SCENES=50`. Large scripts may take a while because every scene needs search, download, trim, caption, and export work. The bot keeps one editable progress message updated with percentages, then deletes that progress message after delivery.
+
 ## Deploy Later
 
 For simple deployment, run the same `npm start` command on a VPS, Railway, Render, Fly.io, or another Node-capable host.

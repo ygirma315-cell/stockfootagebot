@@ -52,7 +52,30 @@ function groupSentences(sentences, targetCount) {
   return groups;
 }
 
+function splitSceneBlocks(text) {
+  return String(text || '')
+    .split(/(?=\b(?:scene|shot|clip|part)\s*\d+\s*[:.-])/gi)
+    .map(sanitizePrompt)
+    .filter((segment) => wordCount(segment) >= 3);
+}
+
+function stripNarrationSections(text) {
+  const rawText = String(text || '');
+  const visualText = rawText.replace(
+    /\n\s*(?:voice[-\s]?over|caption lines?|captions)\s*:[\s\S]*$/i,
+    ''
+  );
+
+  return wordCount(visualText) >= 3 ? visualText : rawText;
+}
+
 function chooseCandidateSegments(text, textType, targetCount) {
+  const sceneBlocks = splitSceneBlocks(text);
+
+  if (sceneBlocks.length >= 2) {
+    return sceneBlocks;
+  }
+
   const paragraphs = splitParagraphs(text);
 
   if (textType === 'medium' && paragraphs.length >= 2) {
@@ -105,7 +128,11 @@ function localAnalyze(text, mediaType, maxScenes) {
   const safeText = sanitizePrompt(text);
   const words = wordCount(safeText);
   const textType = classifyText(safeText);
-  const targetCount = targetSceneCount(textType, words, maxScenes);
+  const explicitSceneCount = splitSceneBlocks(safeText).length;
+  const targetCount = Math.min(
+    maxScenes,
+    Math.max(targetSceneCount(textType, words, maxScenes), explicitSceneCount)
+  );
 
   if (textType === 'short') {
     return {
@@ -139,15 +166,15 @@ function localAnalyze(text, mediaType, maxScenes) {
   };
 }
 
-async function analyzeScript(text, mediaType) {
-  const safeText = sanitizePrompt(text);
+async function analyzeScript(text, mediaType, options = {}) {
+  const safeText = sanitizePrompt(stripNarrationSections(text));
 
   if (!safeText) {
     throw new Error('Prompt is empty.');
   }
 
   const textType = classifyText(safeText);
-  const maxScenes = config.maxMediaPerRequest;
+  const maxScenes = options.maxScenes || config.maxMediaPerRequest;
 
   if (textType !== 'short') {
     const aiResult = await analyzeWithAi(safeText, mediaType, maxScenes);
@@ -155,7 +182,7 @@ async function analyzeScript(text, mediaType) {
       return {
         ...aiResult,
         textType,
-        truncated: aiResult.truncated || aiResult.scenes.length >= maxScenes
+        truncated: Boolean(aiResult.truncated)
       };
     }
   }

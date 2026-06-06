@@ -534,6 +534,112 @@ function initialVideoBatchSize(analysis) {
   return Math.min(analysis.scenes.length, config.maxMediaPerRequest);
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createProgressReporter(telegramApi, chatId) {
+  let messageId = null;
+  let lastText = '';
+
+  const sendFresh = async (text) => {
+    const message = await telegramApi.sendMessage(chatId, text, telegram.htmlOptions());
+    messageId = message.message_id;
+    lastText = text;
+  };
+
+  return {
+    async update(percent, message) {
+      const text = telegram.renderProgressText(percent, message);
+
+      if (text === lastText) {
+        return;
+      }
+
+      if (!messageId) {
+        await sendFresh(text);
+        return;
+      }
+
+      try {
+        await telegramApi.editMessageText(chatId, messageId, undefined, text, telegram.htmlOptions());
+        lastText = text;
+      } catch (error) {
+        await telegramApi.deleteMessage(chatId, messageId).catch(() => {});
+        await sendFresh(text);
+      }
+    },
+    async close() {
+      if (!messageId) {
+        return;
+      }
+
+      await telegramApi.deleteMessage(chatId, messageId).catch(() => {});
+      messageId = null;
+      lastText = '';
+    }
+  };
+}
+
+async function sendRenderedVideoWithRetry(job, result, progress) {
+  const caption = telegram.premiumRenderCompleteText(result, job.quota);
+  let lastError;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await progress.update(
+        attempt === 1 ? 94 : 97,
+        attempt === 1 ? 'Uploading the final video' : 'Retrying video upload'
+      );
+      await job.telegramApi.sendVideo(
+        job.chatId,
+        { source: result.outputPath },
+        {
+          caption,
+          supports_streaming: true
+        }
+      );
+      return 'video';
+    } catch (error) {
+      lastError = error;
+      logger.warn('Rendered video upload attempt failed.', {
+        attempt,
+        error: {
+          name: error.name,
+          message: error.message
+        }
+      });
+      await wait(1500 * attempt);
+    }
+  }
+
+  try {
+    await progress.update(99, 'Video upload struggled. Sending the MP4 as a file');
+    await job.telegramApi.sendDocument(
+      job.chatId,
+      {
+        source: result.outputPath,
+        filename: 'premium-render.mp4'
+      },
+      {
+        caption
+      }
+    );
+    return 'document';
+  } catch (error) {
+    logger.warn('Rendered document fallback upload failed.', {
+      error: {
+        name: error.name,
+        message: error.message
+      }
+    });
+
+    const uploadError = new Error('Telegram upload failed after retry.');
+    uploadError.cause = lastError || error;
+    throw uploadError;
+  }
+}
+
 function enqueuePremiumRenderJob(job) {
   const position = activePremiumRenders + premiumRenderQueue.length + 1;
   premiumRenderQueue.push(job);
@@ -559,10 +665,19 @@ function processPremiumRenderQueue() {
 
 async function runPremiumRenderJob(job) {
   let result;
+  const progress = job.progress || createProgressReporter(job.telegramApi, job.chatId);
 
   try {
-    const progress = async (message) => {
-      await job.telegramApi.sendMessage(job.chatId, message).catch((error) => {
+    const progressUpdate = async (update) => {
+      const payload =
+        typeof update === 'string'
+          ? {
+              percent: 50,
+              message: update
+            }
+          : update;
+
+      await progress.update(payload.percent, payload.message).catch((error) => {
         logger.warn('Premium render progress message failed.', {
           error: {
             name: error.name,
@@ -574,27 +689,22 @@ async function runPremiumRenderJob(job) {
 
     result = await renderPremiumVideo({
       analysis: job.analysis,
-      onProgress: progress,
+      onProgress: progressUpdate,
       ratioLabel: job.session.ratioLabel,
       script: job.text,
       voiceover: job.voiceover
     });
 
-    await job.telegramApi.sendMessage(job.chatId, 'Uploading the final video...');
-    await job.telegramApi.sendVideo(
-      job.chatId,
-      { source: result.outputPath },
-      {
-        caption: telegram.premiumRenderCompleteText(result, job.quota),
-        supports_streaming: true
-      }
-    );
+    await sendRenderedVideoWithRetry(job, result, progress);
+    await progress.update(100, 'Done. Final video delivered');
+    await progress.close();
   } catch (error) {
     logger.error('Premium render failed.', error, {
       chatId: job.chatId,
       userId: job.userId
     });
 
+    await progress.close();
     await job.telegramApi.sendMessage(
       job.chatId,
       telegram.premiumRenderFailedText(error),
@@ -741,16 +851,22 @@ async function processPremiumVideoRequest(ctx, text, session, voiceover) {
     return;
   }
 
-  await ctx.reply(telegram.analyzingText());
-  const analysis = await analyzeScript(text, 'video');
+  const progress = createProgressReporter(ctx.telegram, ctx.chat.id);
+  await progress.update(10, 'Analyzing your script');
+  const analysis = await analyzeScript(text, 'video', {
+    maxScenes: config.premiumAnalysisMaxScenes
+  });
 
   if (analysis.scenes.length === 0) {
+    await progress.close();
     await ctx.reply(telegram.noScenesText());
     return;
   }
 
-  if (analysis.truncated) {
-    await ctx.reply(telegram.longScriptText());
+  await progress.update(20, `Planned ${analysis.scenes.length} render scene(s)`);
+
+  if (analysis.scenes.length >= 12) {
+    await ctx.reply(telegram.premiumLongRenderText(analysis.scenes.length));
   }
 
   await ctx.reply(
@@ -765,13 +881,19 @@ async function processPremiumVideoRequest(ctx, text, session, voiceover) {
       orientation: session.orientation,
       ratioLabel: session.ratioLabel
     },
+    progress,
     telegramApi: ctx.telegram,
     text,
     userId: ctx.from.id,
     voiceover
   });
 
-  await ctx.reply(telegram.premiumRenderQueuedText(position));
+  await progress.update(
+    position <= 1 ? 25 : 20,
+    position <= 1
+      ? 'Render started'
+      : `Render queued at position ${position}`
+  );
 
   updateSession(ctx, {
     state: 'idle',

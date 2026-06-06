@@ -36,7 +36,7 @@ function voiceoverTextFromScript(script) {
   const captionSplit = voiceoverMatch?.[1]?.split(/\n\s*(?:caption|captions|scene)\b\s*:?\s*/i)[0];
   const text = captionSplit || cleanScript;
 
-  return sanitizePrompt(text).slice(0, 1800);
+  return sanitizePrompt(text).slice(0, config.voiceoverMaxChars);
 }
 
 function selectScenes(scenes) {
@@ -45,10 +45,12 @@ function selectScenes(scenes) {
     .slice(0, config.renderMaxScenes);
 }
 
-function distributeDurations(totalDuration, scenes) {
+function distributeDurations(totalDuration, scenes, options = {}) {
   const count = Math.max(scenes.length, 1);
-  const safeTotal = Math.max(totalDuration, count * 2.5);
-  const minDuration = safeTotal < count * 2.5 ? safeTotal / count : 2.5;
+  const safeTotal = Math.max(totalDuration, 1);
+  const minDuration = options.matchTotalDuration
+    ? Math.max(0.05, (safeTotal / count) * 0.45)
+    : 2.5;
   const weights = scenes.map((scene) =>
     Math.max(4, wordCount(`${scene.description || ''} ${scene.pexelsQuery || ''}`))
   );
@@ -360,9 +362,12 @@ async function renderPremiumVideo({
       throw new Error('No visual scenes were found for rendering.');
     }
 
-    const progress = async (message) => {
+    const progress = async (percent, message) => {
       if (typeof onProgress === 'function') {
-        await onProgress(message);
+        await onProgress({
+          message,
+          percent
+        });
       }
     };
     const dimensions = dimensionsForRatio(ratioLabel);
@@ -371,16 +376,17 @@ async function renderPremiumVideo({
     let voice = null;
 
     if (voiceover?.source !== 'none') {
-      await progress('Generating voice-over audio...');
+      await progress(30, 'Generating voice-over audio');
       voice = await synthesizeVoiceover(voiceText, voiceover);
       cleanupPaths.push(voice.path);
     }
 
-    await progress(`Downloading ${scenes.length} matching clip(s)...`);
+    await progress(voice ? 40 : 30, `Finding and downloading clips 0/${scenes.length}`);
     const excludeIds = [];
     const clips = [];
 
-    for (const scene of scenes) {
+    for (let index = 0; index < scenes.length; index += 1) {
+      const scene = scenes[index];
       try {
         const clip = await findAndDownloadClip(scene, orientation, excludeIds);
         if (clip) {
@@ -399,6 +405,14 @@ async function renderPremiumVideo({
           scene: scene.sceneNumber
         });
       }
+
+      const downloadStart = voice ? 40 : 30;
+      const downloadRange = voice ? 25 : 35;
+      const percent = Math.min(65, downloadStart + Math.round(((index + 1) / scenes.length) * downloadRange));
+      await progress(
+        percent,
+        `Finding and downloading clips ${index + 1}/${scenes.length}`
+      );
     }
 
     if (clips.length === 0) {
@@ -407,11 +421,14 @@ async function renderPremiumVideo({
 
     const renderedScenes = clips.map((clip) => clip.scene);
     const totalDuration = voice?.duration || estimateRenderDuration(voiceText, renderedScenes.length);
-    const durations = distributeDurations(totalDuration, renderedScenes);
+    const durations = distributeDurations(totalDuration, renderedScenes, {
+      matchTotalDuration: Boolean(voice)
+    });
     const outputPath = tempFilePath('premium-render', '.mp4');
     cleanupPaths.push(outputPath);
 
-    await progress('Rendering the final edited video...');
+    await progress(72, 'Trimming clips and arranging scenes');
+    await progress(82, 'Rendering captions, edits, and audio');
     const captionsBurned = await renderFile({
       audioPath: voice?.path || '',
       clips,
@@ -422,6 +439,8 @@ async function renderPremiumVideo({
     });
 
     const stat = await fs.stat(outputPath);
+    await progress(90, 'Checking the finished video');
+
     if (stat.size > config.telegramVideoMaxBytes) {
       throw new Error('Rendered video is too large for Telegram upload. Try a shorter script.');
     }

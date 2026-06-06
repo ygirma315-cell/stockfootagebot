@@ -104,7 +104,7 @@ async function analyzeWithAi(text, mediaType, maxScenes) {
       body: JSON.stringify({
         model: config.aiModel,
         temperature: 0.2,
-        max_tokens: 900,
+        max_tokens: Math.min(4000, Math.max(900, maxScenes * 90)),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }

@@ -121,7 +121,7 @@ function splitVoiceoverChunks(text) {
     chunks.push(current);
   }
 
-  return chunks.slice(0, 8);
+  return chunks.slice(0, config.voiceoverMaxChunks);
 }
 
 function makeWavBuffer(pcmBuffer, sampleRateHz) {

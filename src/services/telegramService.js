@@ -337,10 +337,11 @@ function voiceEmotionText(gender) {
 }
 
 function premiumRenderSummaryText(analysis, voiceover) {
-  const captions = analysis.scenes
-    .slice(0, 10)
+  const shownScenes = analysis.scenes.slice(0, 10);
+  const captions = shownScenes
     .map((scene) => `${scene.sceneNumber}. ${scene.description}`)
     .join('\n');
+  const remainingScenes = Math.max(0, analysis.scenes.length - shownScenes.length);
   const voiceLabel =
     voiceover.source === 'none'
       ? 'No voice-over'
@@ -354,9 +355,10 @@ function premiumRenderSummaryText(analysis, voiceover) {
     '',
     '<b>Caption draft</b>',
     captions,
+    remainingScenes > 0 ? `...and ${remainingScenes} more scene(s).` : null,
     '',
     'I am rendering one edited video now.'
-  ].join('\n').slice(0, 3900);
+  ].filter((line) => line !== null).join('\n').slice(0, 3900);
 }
 
 function premiumRenderQueuedText(position) {
@@ -370,6 +372,21 @@ function premiumRenderQueuedText(position) {
   return [
     `Premium render queued at position ${position}.`,
     'The bot renders one job at a time to keep the server stable.'
+  ].join('\n');
+}
+
+function renderProgressText(percent, message) {
+  const safePercent = Math.max(0, Math.min(100, Number.parseInt(percent, 10) || 0));
+  return [
+    `Render progress: ${safePercent}%`,
+    escapeHtml(message || 'Working on your video...')
+  ].join('\n');
+}
+
+function premiumLongRenderText(sceneCount) {
+  return [
+    `This script has ${sceneCount} planned scene(s).`,
+    'Bigger renders can take a while, so I will keep updating the progress message.'
   ].join('\n');
 }
 
@@ -390,8 +407,35 @@ function premiumRenderCompleteText(result, quota) {
   return parts.join('\n').slice(0, 1000);
 }
 
+function cleanFailureReason(error) {
+  const rawMessage = [error?.message, error?.cause?.message].filter(Boolean).join(' ');
+  const lowerMessage = rawMessage.toLowerCase();
+
+  if (/socket hang up|econnreset|etimedout|network|fetch failed/.test(lowerMessage)) {
+    return 'Telegram connection dropped during upload. I retried and could not deliver the file.';
+  }
+
+  if (/too large|file.*large|entity too large/.test(lowerMessage)) {
+    return 'The rendered video was too large to upload. Try fewer scenes or a shorter script.';
+  }
+
+  if (/voice-over api key|voice-over service|riva|grpc|not_found|unauthenticated|permission/.test(lowerMessage)) {
+    return 'Voice-over generation failed. Check the voice API settings or try no voice-over.';
+  }
+
+  if (/no downloadable footage|no visual scenes/.test(lowerMessage)) {
+    return rawMessage.slice(0, 180);
+  }
+
+  if (/render timed out/.test(lowerMessage)) {
+    return 'The render took too long. Try fewer scenes or a shorter script.';
+  }
+
+  return 'The render failed before delivery. Try a shorter, more visual script.';
+}
+
 function premiumRenderFailedText(error) {
-  const message = String(error?.message || '').slice(0, 180);
+  const message = cleanFailureReason(error);
 
   return [
     'I could not finish that render.',
@@ -498,6 +542,7 @@ module.exports = {
   planLimitLine,
   planUpdatedText,
   premiumLockedText,
+  premiumLongRenderText,
   premiumRenderCompleteText,
   premiumRenderFailedText,
   premiumRenderQueuedText,
@@ -505,6 +550,7 @@ module.exports = {
   premiumRenderSummaryText,
   promptRequestText,
   quotaReachedText,
+  renderProgressText,
   sceneCaption,
   searchingText,
   scriptGeneratingText,

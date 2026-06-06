@@ -79,9 +79,12 @@ module.exports = {
   imageMaxBytes: 12 * 1024 * 1024,
   videoMaxBytes: positiveInteger(process.env.VIDEO_MAX_MB, 18) * 1024 * 1024,
   downloadTimeoutMs: positiveInteger(process.env.DOWNLOAD_TIMEOUT_MS, 20_000),
-  renderMaxScenes: positiveInteger(process.env.RENDER_MAX_SCENES, 6),
+  premiumAnalysisMaxScenes: positiveInteger(process.env.PREMIUM_ANALYSIS_MAX_SCENES, 50),
+  renderMaxScenes: positiveInteger(process.env.RENDER_MAX_SCENES, 50),
   renderMaxConcurrent: positiveInteger(process.env.RENDER_MAX_CONCURRENT, 1),
   renderClipMaxBytes: positiveInteger(process.env.RENDER_CLIP_MAX_MB, 35) * 1024 * 1024,
-  renderTimeoutMs: positiveInteger(process.env.RENDER_TIMEOUT_MS, 180_000),
-  telegramVideoMaxBytes: positiveInteger(process.env.TELEGRAM_VIDEO_MAX_MB, 45) * 1024 * 1024
+  renderTimeoutMs: positiveInteger(process.env.RENDER_TIMEOUT_MS, 600_000),
+  telegramVideoMaxBytes: positiveInteger(process.env.TELEGRAM_VIDEO_MAX_MB, 45) * 1024 * 1024,
+  voiceoverMaxChars: positiveInteger(process.env.VOICEOVER_MAX_CHARS, 12_000),
+  voiceoverMaxChunks: positiveInteger(process.env.VOICEOVER_MAX_CHUNKS, 40)
 };
