@@ -363,7 +363,7 @@ async function searchInlineVideos(query, options = {}) {
     page: '1'
   });
   const result = await pexelsJson(url, {
-    timeoutMs: options.timeoutMs || 3500
+    timeoutMs: options.timeoutMs || 2000
   });
   return inlineVideoResults(result.videos);
 }

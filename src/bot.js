@@ -22,6 +22,9 @@ const {
 const userSessions = new Map();
 const inlineVideoCache = new Map();
 const INLINE_CACHE_TTL_MS = 90_000;
+const INLINE_DEFAULT_QUERY = 'cinematic nature';
+const INLINE_MIN_SEARCH_CHARS = 2;
+const INLINE_SEARCH_TIMEOUT_MS = 2000;
 
 function validateConfig() {
   const missing = [];
@@ -823,9 +826,50 @@ function setCachedInlineVideos(cacheKey, results) {
   });
 }
 
+function inlineVideoCacheKey(searchQuery) {
+  return `landscape:${String(searchQuery || '').toLowerCase()}`;
+}
+
+async function getInlineVideos(searchQuery) {
+  const cacheKey = inlineVideoCacheKey(searchQuery);
+  const cachedVideos = getCachedInlineVideos(cacheKey);
+
+  if (cachedVideos) {
+    return cachedVideos;
+  }
+
+  const videos = await searchInlineVideos(searchQuery, {
+    orientation: 'landscape',
+    timeoutMs: INLINE_SEARCH_TIMEOUT_MS
+  });
+  setCachedInlineVideos(cacheKey, videos);
+  return videos;
+}
+
+async function preloadInlineVideos() {
+  if (!config.pexelsApiKey) {
+    return;
+  }
+
+  try {
+    const searchQuery = buildSearchQuery(INLINE_DEFAULT_QUERY, 'video');
+    await getInlineVideos(searchQuery);
+    logger.info('Inline starter footage cache warmed.');
+  } catch (error) {
+    logger.warn('Inline starter footage cache warmup failed.', {
+      error: {
+        name: error.name,
+        message: error.message
+      }
+    });
+  }
+}
+
 async function handleInlineVideoSearch(ctx) {
   const query = normalizeWhitespace(ctx.inlineQuery?.query || '');
-  const effectiveQuery = query || 'cinematic nature';
+  const shouldSearchQuery = query.length >= INLINE_MIN_SEARCH_CHARS;
+  const effectiveQuery = shouldSearchQuery ? query : INLINE_DEFAULT_QUERY;
+  const displayQuery = shouldSearchQuery ? query : 'Popular footage';
 
   if (!config.pexelsApiKey || (query && !isInlineKeywordQuery(query))) {
     await ctx.answerInlineQuery([footageNotFoundInlineResult(query)], {
@@ -837,25 +881,15 @@ async function handleInlineVideoSearch(ctx) {
 
   try {
     const searchQuery = buildSearchQuery(effectiveQuery, 'video');
-    const cacheKey = `landscape:${searchQuery.toLowerCase()}`;
-    const cachedVideos = getCachedInlineVideos(cacheKey);
-    const videos = cachedVideos || await searchInlineVideos(searchQuery, {
-      orientation: 'landscape',
-      timeoutMs: 3500
-    });
-
-    if (!cachedVideos) {
-      setCachedInlineVideos(cacheKey, videos);
-    }
-
+    const videos = await getInlineVideos(searchQuery);
     const results = videos.map((video, index) =>
-      toInlineVideoResult(video, query || 'Popular footage', index)
+      toInlineVideoResult(video, displayQuery, index)
     );
 
     await ctx.answerInlineQuery(
       results.length > 0 ? results : [footageNotFoundInlineResult(query || effectiveQuery)],
       {
-        cache_time: query ? 20 : 60,
+        cache_time: shouldSearchQuery ? 15 : 120,
         is_personal: false
       }
     );
@@ -866,10 +900,19 @@ async function handleInlineVideoSearch(ctx) {
         message: error.message
       }
     });
-    await ctx.answerInlineQuery([footageNotFoundInlineResult(query)], {
-      cache_time: 30,
-      is_personal: true
-    });
+    const starterQuery = buildSearchQuery(INLINE_DEFAULT_QUERY, 'video');
+    const starterVideos = getCachedInlineVideos(inlineVideoCacheKey(starterQuery)) || [];
+    const fallbackResults = starterVideos.map((video, index) =>
+      toInlineVideoResult(video, 'Popular footage', index)
+    );
+
+    await ctx.answerInlineQuery(
+      fallbackResults.length > 0 ? fallbackResults : [footageNotFoundInlineResult(query)],
+      {
+        cache_time: 30,
+        is_personal: true
+      }
+    );
   }
 }
 
@@ -1296,6 +1339,8 @@ async function createBot() {
       }
     });
   }
+
+  preloadInlineVideos();
 
   return bot;
 }
