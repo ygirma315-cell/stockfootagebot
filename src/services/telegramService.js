@@ -23,12 +23,20 @@ function htmlOptions(keyboard) {
   };
 }
 
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function mainMenuKeyboard() {
   return Markup.inlineKeyboard([
     [
       Markup.button.callback('🖼 Images', 'generate_images'),
       Markup.button.callback('🎬 Videos', 'generate_videos')
     ],
+    [Markup.button.callback('📝 Generate Script', 'generate_script')],
     [
       Markup.button.callback('💎 Subscription', 'subscription'),
       Markup.button.callback('💰 Add Balance', 'balance')
@@ -104,10 +112,15 @@ function aspectRatioKeyboard() {
   ]);
 }
 
-function videoWorkflowKeyboard() {
+function videoWorkflowKeyboard(hasPremiumAccess = false) {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🎬 Stock clips', 'video_workflow_stock')],
-    [Markup.button.callback('🚀 Premium render kit', 'video_workflow_premium')],
+    [
+      Markup.button.callback(
+        hasPremiumAccess ? '🚀 Premium render kit' : '🔒 Premium render kit',
+        hasPremiumAccess ? 'video_workflow_premium' : 'premium_render_locked'
+      )
+    ],
     [Markup.button.callback('↩️ Back', 'main_menu')]
   ]);
 }
@@ -165,6 +178,7 @@ function helpText() {
     '<b>How it works</b>',
     '🖼 Images: pick a ratio, then send a prompt or script.',
     '🎬 Videos: pick a ratio, then send a prompt or script.',
+    '📝 Generate Script: send a topic and get a clean video script.',
     '💎 Subscription: see plans and contact the owner to activate.',
     '💰 Add Balance: request a Birr or USDT top-up.',
     '🔎 Inline: type this bot username in any chat, then short video keywords only.',
@@ -207,6 +221,32 @@ function subscriptionText(profile) {
 
 function buySubscriptionText() {
   return '<b>Choose a subscription</b>\nPick the plan you want to buy.';
+}
+
+function scriptPromptText() {
+  return [
+    '<b>Generate Script</b>',
+    'Send one topic, product, niche, or idea.',
+    '',
+    'Example: AI tools for small businesses'
+  ].join('\n');
+}
+
+function scriptGeneratingText() {
+  return 'Writing a clean video script...';
+}
+
+function generatedScriptText(script) {
+  return `<b>Generated Script</b>\n\n${escapeHtml(String(script || '').slice(0, 3600))}`;
+}
+
+function premiumLockedText() {
+  return [
+    '<b>Premium render kit is locked</b>',
+    'This feature is only for Premium users.',
+    '',
+    'Upgrade from Subscription to unlock render planning, captions, and voice-over flow.'
+  ].join('\n');
 }
 
 function paymentMethodText(planId) {
@@ -402,6 +442,7 @@ module.exports = {
   chooseVideoWorkflowText,
   doneText,
   generateMoreKeyboard,
+  generatedScriptText,
   helpText,
   htmlOptions,
   longScriptText,
@@ -415,12 +456,15 @@ module.exports = {
   paymentMethodText,
   planLimitLine,
   planUpdatedText,
+  premiumLockedText,
   premiumPromptRequestText,
   premiumRenderSummaryText,
   promptRequestText,
   quotaReachedText,
   sceneCaption,
   searchingText,
+  scriptGeneratingText,
+  scriptPromptText,
   subscriptionKeyboard,
   subscriptionPaymentKeyboard,
   subscriptionPaymentText,

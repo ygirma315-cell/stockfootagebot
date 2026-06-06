@@ -132,6 +132,111 @@ async function analyzeWithAi(text, mediaType, maxScenes) {
   }
 }
 
+function localScript(topic) {
+  const safeTopic = truncateText(sanitizePrompt(topic), 90) || 'your idea';
+
+  return [
+    `Hook: What if ${safeTopic} could be shown in a way people understand instantly?`,
+    '',
+    `Scene 1: Open with a strong visual of ${safeTopic}. Keep the shot simple, clear, and cinematic.`,
+    '',
+    'Scene 2: Show the problem or tension. Use close-up details, movement, and real-world context.',
+    '',
+    'Scene 3: Reveal the useful change. Make the visuals feel practical, modern, and easy to follow.',
+    '',
+    'Scene 4: End with a confident final shot and a short call to action.',
+    '',
+    `Voice-over: ${safeTopic} is easier to understand when every scene has a clear purpose. Start with attention, build the story, and finish with a visual people remember.`
+  ].join('\n');
+}
+
+async function generateScriptWithAi(topic) {
+  const safeTopic = sanitizePrompt(topic);
+
+  if (!safeTopic) {
+    throw new Error('Script topic is empty.');
+  }
+
+  if (!config.aiApiKey) {
+    return {
+      source: 'local',
+      script: localScript(safeTopic)
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25_000);
+
+  const systemPrompt = [
+    'You write concise video scripts for stock-footage-based social videos.',
+    'Do not mention stock providers, websites, links, or where footage comes from.',
+    'Use clean plain text only. No markdown tables.',
+    'Make it useful for YouTube Shorts, TikTok, or reels.'
+  ].join(' ');
+
+  const userPrompt = [
+    `Topic: ${normalizeWhitespace(safeTopic)}`,
+    '',
+    'Write a practical 45-60 second script with:',
+    'Hook',
+    '5 visual scenes',
+    'Voice-over',
+    'Caption lines',
+    '',
+    'Keep it organized, direct, and easy to turn into footage searches.'
+  ].join('\n');
+
+  try {
+    const response = await fetch(config.aiApiBaseUrl, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${config.aiApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: config.aiModel,
+        temperature: 0.7,
+        max_tokens: 900,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Script generation request failed.');
+    }
+
+    const data = await response.json();
+    const content = String(data?.choices?.[0]?.message?.content || '').trim();
+
+    if (!content) {
+      throw new Error('Script generation returned empty content.');
+    }
+
+    return {
+      source: 'ai',
+      script: content
+    };
+  } catch (error) {
+    logger.warn('Script generation failed, using local fallback.', {
+      error: {
+        name: error.name,
+        message: error.message
+      }
+    });
+    return {
+      source: 'local',
+      script: localScript(safeTopic)
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 module.exports = {
-  analyzeWithAi
+  analyzeWithAi,
+  generateScriptWithAi
 };

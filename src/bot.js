@@ -3,6 +3,7 @@ const { Telegraf } = require('telegraf');
 const config = require('./config');
 const logger = require('./utils/logger');
 const { cleanupFile, cleanupOldDownloads, ensureRuntimeDirs } = require('./utils/fileCleanup');
+const { generateScriptWithAi } = require('./services/aiService');
 const { analyzeScript } = require('./services/scriptAnalyzer');
 const {
   downloadImage,
@@ -16,6 +17,7 @@ const telegram = require('./services/telegramService');
 const {
   buildSearchQuery,
   normalizeWhitespace,
+  sanitizePrompt,
   wordCount
 } = require('./utils/textTools');
 
@@ -64,6 +66,7 @@ async function configureBotMenu(bot) {
     { command: 'menu', description: 'Open the main buttons' },
     { command: 'images', description: 'Create stock photos' },
     { command: 'videos', description: 'Create stock videos' },
+    { command: 'script', description: 'Generate a video script' },
     { command: 'subscription', description: 'View subscription plans' },
     { command: 'balance', description: 'Check balance and top up' },
     { command: 'topup', description: 'Request a balance top-up' },
@@ -80,6 +83,11 @@ async function configureBotMenu(bot) {
   ];
 
   await bot.telegram.setMyCommands(userCommands);
+  await bot.telegram.setMyCommands([], {
+    scope: {
+      type: 'all_group_chats'
+    }
+  });
   await bot.telegram.setChatMenuButton({
     menuButton: {
       type: 'commands'
@@ -245,6 +253,22 @@ function resetSession(ctx) {
   }
 
   userSessions.set(ctx.from.id, defaultSession());
+}
+
+function isPrivateChat(ctx) {
+  return ctx.chat?.type === 'private';
+}
+
+async function privateChatOnly(ctx, next) {
+  if (ctx.updateType === 'inline_query' || isPrivateChat(ctx)) {
+    return next();
+  }
+
+  if (ctx.callbackQuery?.id) {
+    await ctx.answerCbQuery('Open the bot privately. Inline search works in groups.').catch(() => {});
+  }
+
+  return undefined;
 }
 
 function ratioSettings(ratioLabel) {
@@ -732,23 +756,43 @@ async function startPremiumVideoFlow(ctx) {
 }
 
 async function startVideoFlow(ctx) {
-  if (await userHasPremiumAccess(ctx)) {
-    updateSession(ctx, {
-      state: 'choosing_video_workflow',
-      mediaType: 'video',
-      videoWorkflow: 'stock',
-      premiumScript: '',
-      voiceover: null,
-      lastVideo: null
-    });
-    await ctx.reply(
-      telegram.chooseVideoWorkflowText(),
-      telegram.htmlOptions(telegram.videoWorkflowKeyboard())
-    );
-    return;
-  }
+  const hasPremiumAccess = await userHasPremiumAccess(ctx);
+  updateSession(ctx, {
+    state: 'choosing_video_workflow',
+    mediaType: 'video',
+    videoWorkflow: 'stock',
+    premiumScript: '',
+    voiceover: null,
+    lastVideo: null
+  });
+  await ctx.reply(
+    telegram.chooseVideoWorkflowText(),
+    telegram.htmlOptions(telegram.videoWorkflowKeyboard(hasPremiumAccess))
+  );
+}
 
-  await startStockVideoFlow(ctx);
+async function startScriptFlow(ctx) {
+  updateSession(ctx, {
+    state: 'waiting_for_script_topic',
+    mediaType: null,
+    premiumScript: '',
+    voiceover: null,
+    lastVideo: null
+  });
+  await ctx.reply(telegram.scriptPromptText(), telegram.htmlOptions());
+}
+
+async function processScriptGeneration(ctx, topic) {
+  await ctx.reply(telegram.scriptGeneratingText());
+  const result = await generateScriptWithAi(topic);
+  updateSession(ctx, {
+    state: 'idle',
+    premiumScript: result.script
+  });
+  await ctx.reply(
+    telegram.generatedScriptText(result.script),
+    telegram.htmlOptions(telegram.mainMenuKeyboard())
+  );
 }
 
 function isInlineKeywordQuery(text) {
@@ -880,7 +924,7 @@ async function handleInlineVideoSearch(ctx) {
   }
 
   try {
-    const searchQuery = buildSearchQuery(effectiveQuery, 'video');
+    const searchQuery = sanitizePrompt(effectiveQuery).slice(0, 60) || INLINE_DEFAULT_QUERY;
     const videos = await getInlineVideos(searchQuery);
     const results = videos.map((video, index) =>
       toInlineVideoResult(video, displayQuery, index)
@@ -900,7 +944,7 @@ async function handleInlineVideoSearch(ctx) {
         message: error.message
       }
     });
-    const starterQuery = buildSearchQuery(INLINE_DEFAULT_QUERY, 'video');
+    const starterQuery = INLINE_DEFAULT_QUERY;
     const starterVideos = getCachedInlineVideos(inlineVideoCacheKey(starterQuery)) || [];
     const fallbackResults = starterVideos.map((video, index) =>
       toInlineVideoResult(video, 'Popular footage', index)
@@ -925,6 +969,9 @@ async function createBot() {
     handlerTimeout: 120_000
   });
 
+  bot.on('inline_query', handleInlineVideoSearch);
+  bot.use(privateChatOnly);
+
   bot.start(async (ctx) => {
     resetSession(ctx);
     await sendStart(ctx);
@@ -945,6 +992,10 @@ async function createBot() {
 
   bot.command('videos', async (ctx) => {
     await startVideoFlow(ctx);
+  });
+
+  bot.command('script', async (ctx) => {
+    await startScriptFlow(ctx);
   });
 
   bot.command('subscription', async (ctx) => {
@@ -981,8 +1032,6 @@ async function createBot() {
   bot.command('reset_user', handleResetUser);
   bot.command('set_plan', handleSetPlan);
   bot.command('add_balance', handleAddBalance);
-
-  bot.on('inline_query', handleInlineVideoSearch);
 
   bot.action('subscription', async (ctx) => {
     await ctx.answerCbQuery();
@@ -1041,6 +1090,11 @@ async function createBot() {
     await startVideoFlow(ctx);
   });
 
+  bot.action('generate_script', async (ctx) => {
+    await ctx.answerCbQuery();
+    await startScriptFlow(ctx);
+  });
+
   bot.action('video_workflow_stock', async (ctx) => {
     await ctx.answerCbQuery();
     await startStockVideoFlow(ctx);
@@ -1049,6 +1103,14 @@ async function createBot() {
   bot.action('video_workflow_premium', async (ctx) => {
     await ctx.answerCbQuery();
     await startPremiumVideoFlow(ctx);
+  });
+
+  bot.action('premium_render_locked', async (ctx) => {
+    await ctx.answerCbQuery('Premium only');
+    await ctx.reply(
+      telegram.premiumLockedText(),
+      telegram.htmlOptions(telegram.subscriptionKeyboard())
+    );
   });
 
   bot.action('aspect_9_16', async (ctx) => {
@@ -1291,6 +1353,12 @@ async function createBot() {
     if (state === 'waiting_for_video_prompt') {
       updateSession(ctx, { state: 'processing' });
       await processMediaRequest(ctx, 'video', text, session);
+      return;
+    }
+
+    if (state === 'waiting_for_script_topic') {
+      updateSession(ctx, { state: 'processing' });
+      await processScriptGeneration(ctx, text);
       return;
     }
 
