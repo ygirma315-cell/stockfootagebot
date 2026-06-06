@@ -789,7 +789,7 @@ function inlineHelpResult() {
 function toInlineVideoResult(video, query, index) {
   return {
     type: 'video',
-    id: `pexels-video-${video.id}-${index}`,
+    id: `footage-video-${video.id}-${index}`,
     video_url: video.videoUrl,
     mime_type: 'video/mp4',
     thumbnail_url: video.thumbnailUrl,
@@ -797,12 +797,10 @@ function toInlineVideoResult(video, query, index) {
     video_height: video.height,
     video_duration: video.duration,
     title: `${query} - 16:9 video`,
-    description: video.userName ? `Video by ${video.userName}` : 'Stock video',
+    description: 'Clean 16:9 stock footage',
     caption: [
       `Video: ${query}`,
-      'Format: 16:9',
-      video.userName ? `Credit: ${video.userName}` : '',
-      video.pageUrl ? `Source: ${video.pageUrl}` : ''
+      'Format: 16:9'
     ].filter(Boolean).join('\n').slice(0, 1000)
   };
 }

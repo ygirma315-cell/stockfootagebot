@@ -382,9 +382,8 @@ function balanceUpdatedText(entry, currency) {
 
 function sceneCaption(scene, mediaType, result, ratioLabel = '16:9') {
   const label = mediaType === 'image' ? '🖼 Image' : '🎬 Video';
-  const credits = result?.photographer ? `\n📸 Credit: ${result.photographer}.` : '';
 
-  return `${label} ${scene.sceneNumber} • ${ratioLabel}\n✨ ${scene.pexelsQuery}${credits}`.slice(0, 950);
+  return `${label} ${scene.sceneNumber} • ${ratioLabel}\n✨ ${scene.pexelsQuery}`.slice(0, 950);
 }
 
 function planLimitLine(planId) {
