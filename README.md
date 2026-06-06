@@ -103,7 +103,7 @@ For simple deployment, run the same `npm start` command on a VPS, Railway, Rende
 
 Set the environment variables in the host dashboard instead of uploading `.env`.
 
-This project currently uses long polling. On Render, a Background Worker is the best fit, but a Web Service also works because the app starts a small health server on Render's `PORT`.
+Locally, this project uses Telegram long polling. On Render Web Services, it automatically switches to Telegram webhooks using Render's `RENDER_EXTERNAL_URL`, so only the deployed web service receives updates.
 
 For Render Web Service or Background Worker:
 
@@ -113,5 +113,7 @@ For Render Web Service or Background Worker:
 Leave Root Directory blank.
 
 For Render Web Services, the app auto-pings its own `/health` endpoint every 10 minutes when Render provides `RENDER_EXTERNAL_URL`. You can disable this with `KEEP_ALIVE_ENABLED=false` or change the interval with `KEEP_ALIVE_INTERVAL_MINUTES`.
+
+The default webhook path is `/telegram-webhook`. You can override webhook behavior with `WEBHOOK_ENABLED`, `WEBHOOK_PATH`, `WEBHOOK_URL`, and `WEBHOOK_SECRET_TOKEN`.
 
 For high traffic, you can later switch to Telegram webhooks and replace the local JSON quota file with a database.

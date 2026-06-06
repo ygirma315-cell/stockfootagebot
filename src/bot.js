@@ -43,8 +43,20 @@ async function sendStart(ctx) {
   await ctx.reply(telegram.welcomeText(), telegram.mainMenuKeyboard());
 }
 
-function startHealthServer() {
+function startHealthServer(bot) {
+  const webhookCallback =
+    bot && config.webhookEnabled
+      ? bot.webhookCallback(config.webhookPath, {
+          secretToken: config.webhookSecretToken
+        })
+      : null;
+
   const server = http.createServer((request, response) => {
+    if (webhookCallback && request.method === 'POST' && request.url === config.webhookPath) {
+      webhookCallback(request, response);
+      return;
+    }
+
     const isHealthRoute = request.url === '/' || request.url === '/health';
 
     response.writeHead(isHealthRoute ? 200 : 404, {
@@ -58,11 +70,25 @@ function startHealthServer() {
     );
   });
 
-  server.listen(config.port, () => {
+  server.listen(config.port, '0.0.0.0', () => {
     logger.info(`Health server listening on port ${config.port}.`);
   });
 
   return server;
+}
+
+async function startBotTransport(bot) {
+  if (config.webhookEnabled) {
+    await bot.telegram.setWebhook(config.webhookUrl, {
+      secret_token: config.webhookSecretToken || undefined
+    });
+    logger.info(`Telegram webhook set to ${config.webhookUrl}.`);
+    return 'webhook';
+  }
+
+  await bot.launch();
+  logger.info('Telegram bot started with long polling.');
+  return 'polling';
 }
 
 function startKeepAlivePinger() {
@@ -1017,14 +1043,15 @@ async function createBot() {
 
 if (require.main === module) {
   createBot()
-    .then((bot) => {
-      const healthServer = startHealthServer();
+    .then(async (bot) => {
+      const healthServer = startHealthServer(bot);
       const keepAliveTimer = startKeepAlivePinger();
-      bot.launch();
-      logger.info('Telegram bot started.');
+      const transport = await startBotTransport(bot);
 
       const stop = (signal) => {
-        bot.stop(signal);
+        if (transport === 'polling') {
+          bot.stop(signal);
+        }
         if (keepAliveTimer) {
           clearInterval(keepAliveTimer);
         }
@@ -1045,5 +1072,6 @@ if (require.main === module) {
 module.exports = {
   createBot,
   startHealthServer,
+  startBotTransport,
   startKeepAlivePinger
 };

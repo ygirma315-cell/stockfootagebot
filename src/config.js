@@ -14,10 +14,16 @@ function optionalString(value) {
 
 const aiApiKey = optionalString(process.env.AI_API_KEY);
 const isNvidiaStyleKey = aiApiKey.startsWith('nvapi-');
+const renderExternalUrl = optionalString(process.env.RENDER_EXTERNAL_URL);
 const keepAliveUrl =
   optionalString(process.env.KEEP_ALIVE_URL) ||
-  optionalString(process.env.RENDER_EXTERNAL_URL);
+  renderExternalUrl;
 const keepAliveEnabledValue = optionalString(process.env.KEEP_ALIVE_ENABLED).toLowerCase();
+const webhookPath = optionalString(process.env.WEBHOOK_PATH) || '/telegram-webhook';
+const webhookUrl =
+  optionalString(process.env.WEBHOOK_URL) ||
+  (renderExternalUrl ? `${renderExternalUrl.replace(/\/$/, '')}${webhookPath}` : '');
+const webhookEnabledValue = optionalString(process.env.WEBHOOK_ENABLED).toLowerCase();
 
 module.exports = {
   rootDir,
@@ -43,6 +49,10 @@ module.exports = {
   keepAliveEnabled: Boolean(keepAliveUrl) && keepAliveEnabledValue !== 'false',
   keepAliveIntervalMinutes: positiveInteger(process.env.KEEP_ALIVE_INTERVAL_MINUTES, 10),
   keepAliveUrl,
+  webhookEnabled: Boolean(webhookUrl) && webhookEnabledValue !== 'false',
+  webhookPath,
+  webhookSecretToken: optionalString(process.env.WEBHOOK_SECRET_TOKEN),
+  webhookUrl,
   maxMediaPerRequest: positiveInteger(process.env.MAX_MEDIA_PER_REQUEST, 20),
   quotaTimezone: optionalString(process.env.QUOTA_TIMEZONE) || 'UTC',
   usageFilePath: path.join(rootDir, 'data', 'usage.json'),
