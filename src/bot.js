@@ -65,6 +65,40 @@ function startHealthServer() {
   return server;
 }
 
+function startKeepAlivePinger() {
+  if (!config.keepAliveEnabled) {
+    return null;
+  }
+
+  const pingUrl = `${config.keepAliveUrl.replace(/\/$/, '')}/health`;
+  const intervalMs = config.keepAliveIntervalMinutes * 60 * 1000;
+
+  const ping = async () => {
+    try {
+      const response = await fetch(pingUrl, {
+        headers: {
+          'User-Agent': 'stock-footage-telegram-bot-keepalive'
+        }
+      });
+
+      logger.info(`Keep-alive ping returned ${response.status}.`);
+    } catch (error) {
+      logger.warn('Keep-alive ping failed.', {
+        error: {
+          name: error.name,
+          message: error.message
+        }
+      });
+    }
+  };
+
+  const timer = setInterval(ping, intervalMs);
+  timer.unref?.();
+  setTimeout(ping, 30_000).unref?.();
+  logger.info(`Keep-alive pinger enabled for ${pingUrl}.`);
+  return timer;
+}
+
 async function userHasPremiumAccess(ctx) {
   if (isOwner(ctx)) {
     return true;
@@ -985,11 +1019,15 @@ if (require.main === module) {
   createBot()
     .then((bot) => {
       const healthServer = startHealthServer();
+      const keepAliveTimer = startKeepAlivePinger();
       bot.launch();
       logger.info('Telegram bot started.');
 
       const stop = (signal) => {
         bot.stop(signal);
+        if (keepAliveTimer) {
+          clearInterval(keepAliveTimer);
+        }
         healthServer.close(() => {
           logger.info('Health server stopped.');
         });
@@ -1006,5 +1044,6 @@ if (require.main === module) {
 
 module.exports = {
   createBot,
-  startHealthServer
+  startHealthServer,
+  startKeepAlivePinger
 };

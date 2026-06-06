@@ -112,4 +112,6 @@ For Render Web Service or Background Worker:
 
 Leave Root Directory blank.
 
+For Render Web Services, the app auto-pings its own `/health` endpoint every 10 minutes when Render provides `RENDER_EXTERNAL_URL`. You can disable this with `KEEP_ALIVE_ENABLED=false` or change the interval with `KEEP_ALIVE_INTERVAL_MINUTES`.
+
 For high traffic, you can later switch to Telegram webhooks and replace the local JSON quota file with a database.
